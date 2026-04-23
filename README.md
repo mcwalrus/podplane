@@ -16,7 +16,7 @@ The goal is to combine infrastructure and security best practices with an intuit
 
 Using the Podplane CLI, you can deploy a Podplane cluster in a few minutes, in one of two modes:
 
-- __Kubernetes distribution__: minimal cluster so you can BYO your own stack.
+- __Kubernetes distribution__: minimal cluster so you can BYO stack.
     
     - Includes: Core DNS + Cilium CNI. BYO: Ingress controller, CSI drivers, secrets management, everything else!
 
