@@ -14,32 +14,27 @@ The goal is to combine infrastructure and security best practices with an intuit
 
 ## How It Works
 
-Using the Podplane CLI, you can deploy a Podplane cluster in a few minutes, in one of two modes:
+Using the Podplane CLI, you can deploy a Podplane cluster in a few minutes.
 
-- __Kubernetes distribution__: minimal cluster so you can BYO stack.
-    
-    - Includes: Core DNS + Cilium CNI. BYO: Ingress controller, CSI drivers, secrets management, everything else!
+Every cluster includes CoreDNS and Cilium CNI out of the box, and you can install addon components like Traefik ingress controller or CSI drivers, either at cluster creation or later with `podplane install`.
 
-- __Platform-as-a-Service (PaaS)__: a complete developer platform, ready to deploy your apps.
-    
-    - Includes: the base distribution, plus cert-manager, Traefik ingress, cloud-specific CSI drivers & snapshots controller, secrets store CSI driver, and more.
+Some CLI commands (like `podplane deploy`) require specific components and will guide you to install them if needed.
 
 Deploying a cluster first generates versionable infrastructure-as-code artifacts such as OpenTofu/Terraform `.tf` files for AWS & Google Cloud, which then deploys a cluster into your public or private cloud of choice.
 
 ## Components
 
-Podplane is easy to use and operate because of four unique components which form a new type of Kubernetes-based container platform:
+Podplane is easy to use and operate because of three sibling projects which form a new type of Kubernetes-based container platform:
 
 - Cluster state is stored in object storage via [Netsy](https://netsy.dev), not etcd.
 - Auto-scaling & provisioning is faster with [Nstance](https://nstance.dev).
-- Clusters are pre-imaged with [Prebake](https://prebake.dev) Helm charts.
 - OIDC & RBAC is simplified with [Easy OIDC](https://easy-oidc.dev).
 
-Podplane, Netsy, Nstance, Prebake, and Easy OIDC are Open Source projects created by [Nadrama](https://nadrama.com).
+Podplane, Netsy, Nstance, and Easy OIDC are Open Source projects created by [Nadrama](https://nadrama.com).
 
 ## Learn More
 
-Learn more about Podplane at the official project website: [podplane.dev](http://podplane.dev)
+Learn more about Podplane at the official project website: [podplane.dev](https://podplane.dev)
 
 ## License
 

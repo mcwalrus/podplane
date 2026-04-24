@@ -1,0 +1,180 @@
+---
+title: "Architecture"
+weight: 10
+description: "Overview of the Podplane architecture and components"
+---
+
+# Podplane Architecture
+
+Podplane aims to make container infrastructure easy, and uses a unique Kubernetes-based platform architecture to achieve this goal.
+
+## What Makes Podplane Different?
+
+Podplane is easy to use and operate because it combines three sibling projects into a new type of Kubernetes-based container platform:
+
+- Cluster state is stored in object storage via [Netsy](https://netsy.dev), not on disk via etcd.
+- Auto-scaling & provisioning is faster with [Nstance](https://nstance.dev).
+- OIDC & RBAC is simplified with [Easy OIDC](https://easy-oidc.dev).
+
+Podplane itself consists of three key components:
+
+1. [podplane CLI](https://github.com/podplane/podplane): a CLI for deploying and managing clusters, written in Go.
+2. [vmconfig](https://github.com/podplane/vmconfig): a minimal configuration system designed for Debian-based Linux VMs, written in Bash.
+3. [appconfig](https://github.com/podplane/appconfig): a collection of Helm charts used to seed the Kubernetes cluster state.
+
+Podplane, Netsy, Nstance, and Easy OIDC are Open Source projects created by [Nadrama](https://nadrama.com).
+
+## Platform Layers
+
+A Podplane cluster consists of three platform layers:
+
+1. __Infrastructure Layer__: gets VMs scheduled. This is largely infrastructure-as-code (OpenTofu/Terraform) + Nstance.
+
+2. __Virtual Machine (VM) Layer__: gets Pods scheduled on a VM. This is essentially Netsy + core Kubernetes + containerd.
+
+3. __Container Layer__: delivers a working Developer Platform for devs. This is where Podplane components run atop Kubernetes, e.g. CNI or ingress.
+
+## Component Overview
+
+### Infrastructure & VM Layer
+
+```
+┌────────────┐    ┌──────────────┐
+│Podplane CLI├───▶│OpenTofu / TF │
+└────────────┘    └──────┬───────┘
+                         │ 
+┌────────────────────────▼─────────────────────────────────────────┐
+│              Provider (AWS / Google Cloud / Proxmox)             │
+│                                                                  │
+│     ┌───────────────────────┐   ┌──────────────────┐             │
+│     │  nstance-server (VM)  │◀──│  Auto-Scaling    │             │
+│     └──▲─────┬──────────────┘   │  Groups (ASGs)   │             │
+│        │     │ manages          └──────────────────┘             │
+│     ┌──┼─────▼─────────────────────────────┐  ┌───────────────┐  │
+│     │  │       VM Instances                │  │ Object Storage│  │
+│     │ ┌┴──────────────┐ ┌────────────────┐ │  └──▲────▲────▲──┘  │
+│     │ │ nstance-agent │ │ fluent-bit     ├─┼─────┘    │    │     │
+│     │ ├───────────────┤ ├────────────────┤ │          │    │     │
+│     │ │ kube2iam      │ │ distribution   ├─┼──────────┘    │     │
+│     │ ├───────────────┤ ├────────────────┤ │               │     │
+│     │ │ kubelet       │ │ netsy          ├─┼───────────────┘     │
+│     │ ├───────────────┤ ├────────────────┤ │                     │
+│     │ │ containerd    │ │ kube-scheduler │ │                     │
+│     │ ├───────────────┤ ├────────────────┤ │                     │
+│     │ │ runc          │ │ kube-ctrl-mgr  │ │                     │
+│     │ ├───────────────┤ ├────────────────┤ │  ┌───────────────┐  │
+│     │ │ cni-plugins   │ │ kube-apiserver │ │  │   Easy OIDC   │  │
+│     │ └───────────────┘ └──▲──────────┬──┘ │  │     server    │  │
+│     └──────────────────────┼──────────│────┘  └───▲────────▲──┘  │
+│                            │          └───────────┘        │     │
+└────────────────────────────┼───────────────────────────────┼─────┘
+                             │      ┌─────────────────┐      │
+                             └──────│   Developers    ├──────┘
+                                    │   (kubectl)     │    login
+                                    └─────────────────┘
+```
+
+The sequence of how these all fit together is:
+
+1. `Podplane CLI` generates infrastructure-as-code configuration files
+
+2. If you don't have an existing OIDC server, the CLI can deploy an `Easy OIDC` server for you.
+
+3. OpenTofu/Terraform deploys infrastructure (on AWS/Google Cloud)
+
+4. Podplane bootstraps cluster state using configuration generated by `appconfig`
+
+5. `Nstance` auto-scales cluster VMs using the Podplane userdata script
+
+6. Each VM userdata script downloads the relevant packages, and runs the `vmconfig` package entrypoint to configure the VM.
+
+7. Control Plane nodes run `Netsy` as an etcd-alternative, and all standard Kubernetes components such as `kube-apiserver`
+
+8. Developers use `podplane login` to authenticate with your cluster
+
+9. Developers can use `podplane deploy` to easily deploy apps using templates
+
+   - When using the `deploy` command, the CLI will prompt to automatically `podplane install` required components like cert-manager and Traefik if not already present
+
+### Container Layer
+
+Every Podplane cluster includes CoreDNS and Cilium CNI as core components, and addon components can be installed at cluster creation or later via `podplane install`.
+
+Some CLI commands have dependencies on specific components. For example, `podplane deploy` requires the Traefik component — if the required addon components aren't installed, the CLI will prompt you to install them.
+
+Once a single Control Plane VM is running, you will be able to authenticate with the Kubernetes API server and use tools like `kubectl` to inspect these components.
+
+`podplane install` deploys components with an opinionated, tested configuration — not the full surface area of each component's underlying official Helm chart.
+
+## Component Details
+
+### Infrastructure Layer
+
+__Infrastructure__
+- [opentofu](https://opentofu.org/docs/intro/install/) OR [terraform](https://developer.hashicorp.com/terraform/install) to deploy to AWS or Google Cloud
+- [nstance-server](https://nstance.dev/docs/components/nstance-server/) to run VMs
+
+__Auth__ (if you do not have an existing OIDC server):
+- [easy-oidc](https://easy-oidc.dev) a minimal OIDC server for Google and GitHub cluster authentication
+
+### VM Layer
+
+__Data Plane & Control Plane VMs__:
+- [nstance-agent](https://nstance.dev/docs/components/nstance-agent/) to register VMs
+- [fluent-bit](https://docs.fluentbit.io/manual) for log forwarding
+  - [libpq5](https://packages.debian.org/trixie/libpq5) runtime dependency for fluent-bit
+- [kube2iam](https://github.com/jtblin/kube2iam) for providing IAM Roles to pods
+- [containerd](https://containerd.io/docs/main/) the container runtime 
+- [runc](https://github.com/opencontainers/runc) for containerd to spawn OCI containers
+- [kubelet](https://kubernetes.io/docs/reference/command-line-tools-reference/kubelet/) for running node pods
+  - [uidmap](https://packages.debian.org/sid/uidmap) runtime dependency of kubelet for getsubids
+  - [libsubid5](https://packages.debian.org/trixie/libsubid5) runtime dependency of kubelet for getsubids
+- [cni-plugins](https://github.com/containernetworking/plugins) the reference CNI plugins
+
+__Control Plane VMs__:
+- [netsy](https://netsy.dev/docs/design/) as an etcd alternative
+- [kube-apiserver](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/) the Kubernetes API server
+- [kube-scheduler](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-scheduler/) the Kubernetes scheduler
+- [kube-controller-manager](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-controller-manager/) the core Kubernetes control loops
+- [distribution](https://distribution.github.io/distribution/) the stateless container registry
+
+### Container Layer
+
+__Core Components (always installed)__:
+- `coredns` for cluster DNS
+- `cilium` for cluster CNI
+- `fluxcd` for automated Podplane container-layer upgrades
+
+CRDs:
+- `cert-manager-crds` for cert-manager
+- `cilium-crds` for Cilium CNI
+- `cluster-api-crds` for [Cluster API](https://cluster-api.sigs.k8s.io/) core resources
+- `gateway-api-crds` for any ingress controller using Gateway API, particularly Traefik
+- `nstance-crds` for the Nstance Operator
+- `secrets-store-csi-driver-crds` for the Secrets Store CSI Driver
+- `snapshot-crds` for the Snapshot controller
+- `trust-manager-crds` for trust-manager and default Podplane trust-bundles
+- `fluxcd-crds` for Flux CD
+
+Podplane Configuration:
+- `namespaces`: reserved namespaces
+- `rbac`: default RBAC configuration
+- `trust-bundles`: default Podplane trust bundles enabled when trust-manager is installed
+- `platform`: Podplane platform configuration for installed components
+
+__Addon Components (at cluster creation or via `podplane install`)__:
+
+- `cluster-api` for the Cluster API core controller
+- `nstance` for the Nstance Operator (requires `cluster-api`)
+- `cert-manager`: cert-manager and cert-manager-csi-driver
+- `trust-manager`: trust-manager by the cert-manager project
+- `secrets-store-csi-driver`: Secrets Store CSI Driver
+- `snapshot`: Snapshot controller
+- `traefik`: Traefik ingress controller
+- `metrics-server`: [Kubernetes Metrics Server](https://github.com/kubernetes-sigs/metrics-server)
+- `cluster-autoscaler`: [Kubernetes Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler) for automatic node scaling via Cluster API
+- `node-problem-detector`: [Node Problem Detector](https://github.com/kubernetes/node-problem-detector) for surfacing node hardware/kernel/runtime issues
+
+Cloud Provider CSI Drivers:
+
+- `csi-aws-ebs`: [AWS EBS CSI Drivers](https://github.com/kubernetes-sigs/aws-ebs-csi-driver)

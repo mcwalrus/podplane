@@ -6,12 +6,22 @@ description: "Podplane CLI design and command overview"
 
 # Podplane CLI
 
+## Terminology
+
+- **Components** are platform-level services managed via `install` / `uninstall`. Components are either __core__ components (always installed, cannot be removed e.g. CoreDNS, Cilium) or __addon__ components (can be installed and uninstalled e.g. Traefik, metrics-server).
+- **Apps** are your own workloads, deployed and removed via `deploy` / `remove` using app __templates__ (e.g. `web` or `worker` template).
+- Both templates and components can have configurable __features__.
+
+## Command Groups
+
 The Podplane CLI can be divided into groups of commands:
 
 - `cluster` for managing Podplane clusters
 - `oidc` for managing Easy OIDC deployments
 - authentication commands
 - `hooks` for integration e.g. kubectl exec auth plugin
+- app commands for deploying and removing apps using templates
+- component commands for managing addon components
 - `local` for managing local VM clusters
 - `package` for managing local VM dependency packages
 - informational commands
@@ -60,6 +70,24 @@ We recommend setting up a Git repository for storing all of your cluster and OID
 ## `hooks` commands
 
 - `kubectl-auth` to be used as a kubectl exec auth plugin
+
+## app commands
+
+These commands help you deploy workloads using templates such as the `web` or `worker` app template.
+
+- `deploy <template> --name <name> --image <image>` deploy an app using a template. The CLI will prompt to install addon components if they required dependencies which are not installed.
+- `remove <template> --name <name>` remove a previously deployed app.
+
+Both of these commands are convenience functions which wrap `helm` commands.
+
+## `install` / `uninstall` commands
+
+Addon components extend your cluster's capabilities, such as Traefik ingress controller or CSI drivers.
+
+- `install <component>` installs a component into the cluster with an opinionated, tested configuration.
+- `uninstall <component>` removes a previously installed component from the cluster.
+
+These components are installed and managed by Flux CD.
 
 ## `local` commands
 
