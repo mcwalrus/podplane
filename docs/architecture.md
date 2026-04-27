@@ -1,6 +1,6 @@
 ---
 title: "Architecture"
-weight: 10
+weight: 20
 description: "Overview of the Podplane architecture and components"
 ---
 

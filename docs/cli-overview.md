@@ -1,6 +1,6 @@
 ---
 title: "CLI Overview"
-weight: 20
+weight: 30
 description: "Podplane CLI design and command overview"
 ---
 
