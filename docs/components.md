@@ -20,7 +20,7 @@ During cluster creation, users are given three initial state options to choose f
 
 3. __None__ - does not install any Podplane Components, meaning you get a bare Kubernetes cluster and Nodes will be `NotReady` until a CNI is installed and they can become `Ready` and able to schedule Pods. For advanced users only.
 
-Components are deployed with an opinionated, tested configuration — not the full surface area of each component's underlying official Helm chart.
+Components are deployed with an opinionated, tested configuration - not the full surface area of each component's underlying official Helm chart.
 
 ### Core Components
 
@@ -63,11 +63,11 @@ Addon components which can only be installed via `podplane install`:
 
 ### Cluster State Initialization
 
-Cluster state is initialised via a Podplane provider for OpenTofu/Terraform.
+Cluster state is initialised via a Podplane provider for OpenTofu/Terraform (one binary for AWS, one for Google Cloud).
 
-The provider invokes the Podplane CLI to generate a Netsy snapshot file, and uploads it to its provider-specific object storage (S3 for AWS, GCS for Google Cloud). During this process, the provider ensures a new state file is only uploaded if the cluster is new and has no existing data.
+The provider invokes [`podplane hooks netsy-init`](cli-reference/hooks-netsy-init.md) to download and interpolate a Netsy state template with cluster-specific settings, then uploads the resulting snapshot to provider-specific object storage (S3 for AWS, GCS for Google Cloud). Before uploading, the provider checks that the first Netsy snapshot does not already exist, then performs a conditional put to create it - ensuring it can never overwrite a real snapshot by mistake.
 
-The **Recommended** and **Minimal** options each have their own snapshot files used as initial state templates. The CLI interpolates these files with cluster-specific settings — name/slug, network configuration (IPv6 enabled, cluster CIDR, services CIDR), etc.
+The **Recommended** and **Minimal** options each have their own template files. The CLI interpolates these with cluster-specific settings - name/slug, network configuration (IPv6 enabled, cluster CIDR, services CIDR), etc. Template interpolation lives in the CLI (rather than the provider) because the CLI also uses it when creating local clusters via `podplane local start`.
 
 The **None** option skips component initialization entirely.
 
@@ -83,7 +83,7 @@ It acts as the single control point for all component installations. The platfor
 
 ### Component Dependencies
 
-Component dependency metadata lives in the platform chart within the cluster itself — not hardcoded in the CLI. The CLI queries the Kubernetes API to read the platform chart's metadata to determine what's installed and what dependencies exist.
+Component dependency metadata lives in the platform chart within the cluster itself - not hardcoded in the CLI. The CLI queries the Kubernetes API to read the platform chart's metadata to determine what's installed and what dependencies exist.
 
 This means the CLI doesn't need to bundle or fetch dependency information from the [components](https://github.com/podplane/components) repo at runtime. The `components` repo is where charts are authored, but the cluster is the runtime source of truth.
 

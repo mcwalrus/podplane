@@ -22,6 +22,7 @@ description: "Podplane CLI reference"
 ## Hooks Commands
 
 - [podplane hooks kubectl-auth](hooks-kubectl-auth.md) – kubectl exec auth plugin.
+- [podplane hooks netsy-init](hooks-netsy-init.md) – Generate an initial Netsy snapshot file from a template.
 
 ## App Commands
 

@@ -19,7 +19,7 @@ The Podplane CLI can be divided into groups of commands:
 - `cluster` for managing Podplane clusters
 - `oidc` for managing Easy OIDC deployments
 - authentication commands
-- `hooks` for integration e.g. kubectl exec auth plugin
+- `hooks` for integration e.g. kubectl exec auth plugin, podplane TF providers for Netsy state initialization
 - app commands for deploying and removing apps using templates
 - component commands for managing addon components
 - `local` for managing local VM clusters
@@ -73,6 +73,7 @@ We recommend setting up a Git repository for storing all of your cluster and OID
 ### `hooks` commands
 
 - `kubectl-auth` to be used as a kubectl exec auth plugin
+- `netsy-init` to generate an initial Netsy snapshot file from a template; called by the Podplane Terraform/OpenTofu providers (one binary for AWS, one for Google Cloud) during cluster creation
 
 ### app commands
 

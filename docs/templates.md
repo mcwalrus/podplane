@@ -6,7 +6,7 @@ description: "App deployment templates for web apps and background workers"
 
 # Templates
 
-App templates are opinionated Helm charts that make it easy to deploy common workload types via `podplane deploy`. Each template handles the boilerplate — networking, TLS, ingress - so you only need to provide the basics like an app name and your container image.
+App templates are opinionated Helm charts that make it easy to deploy common workload types via `podplane deploy`. Each template handles the boilerplate - networking, TLS, ingress - so you only need to provide the basics like an app name and your container image.
 
 ```bash
 podplane deploy <template> --name <name> --image <image>
@@ -32,7 +32,7 @@ The `web` template deploys a web application with automatic TLS and ingress rout
 - A cert-manager Certificate for pod-internal mTLS
 - A BackendTLSPolicy ensuring encrypted gateway-to-service traffic
 
-Your app container serves plain HTTP on port 80 — the Caddy sidecar handles all TLS. No TLS configuration is needed in your app.
+Your app container serves plain HTTP on port 80 - the Caddy sidecar handles all TLS. No TLS configuration is needed in your app.
 
 ### Options
 
@@ -72,7 +72,7 @@ The `worker` template deploys a background worker process with no ingress or TLS
 ### What You Get
 
 - A Deployment running your container
-- No Service, no ingress, no TLS — the worker is not externally reachable
+- No Service, no ingress, no TLS - the worker is not externally reachable
 
 This is suitable for queue consumers, cron-like processors, or any workload that initiates its own outbound connections rather than serving HTTP traffic.
 

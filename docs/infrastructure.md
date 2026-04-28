@@ -31,7 +31,7 @@ The flow for AWS or Google Cloud is:
     1. generates a `podplane.cluster.jsonc` config file.
     2. generates OpenTofu/Terraform `.tf` files.
     3. optionally, can deploy the infrastructure as well.
-2. A Podplane provider for OpenTofu/Terraform invokes the CLI to generate Netsy snapshot files and uploads them to object storage (S3 for AWS, GCS for Google Cloud).
+2. A Podplane provider for OpenTofu/Terraform (one binary for AWS, one for Google Cloud) invokes [`podplane hooks netsy-init`](cli-reference/hooks-netsy-init.md) to generate a Netsy snapshot file, then uploads it to object storage (S3 for AWS, GCS for Google Cloud) using a conditional put to ensure it never overwrites existing cluster state.
 3. Nstance auto-scales cluster VMs using the Podplane userdata script.
 
 ## Design Philosophy
@@ -40,7 +40,7 @@ Podplane's configuration aims to cover ~80% of infrastructure use cases. For the
 
 ### Generated vs Custom Code
 
-The CLI generates `podplane.*.tf` files alongside the `podplane.cluster.jsonc` config file. These files are fully managed by the CLI — `podplane cluster create` generates them and `podplane cluster upgrade` will regenerate them in the future. Users should never edit generated `.tf` files directly, instead tune the `podplane.cluster.jsonc` file or create additional custom `.tf` files.
+The CLI generates `podplane.*.tf` files alongside the `podplane.cluster.jsonc` config file. These files are fully managed by the CLI - `podplane cluster create` generates them and `podplane cluster upgrade` will regenerate them in the future. Users should never edit generated `.tf` files directly, instead tune the `podplane.cluster.jsonc` file or create additional custom `.tf` files.
 
 Generated files prefer composition of published [Nstance Terraform modules](https://github.com/nstance-dev/nstance/tree/main/deploy/tf) (`cluster`, `account`, `network`, `shard`) over defining raw cloud resources. The `podplane.main.tf` file contains the cluster module (hosted on the first provider) and shared outputs. Each provider gets its own file containing the provider configuration, account, network, and shard module calls.
 
@@ -49,9 +49,9 @@ To add custom infrastructure (e.g. lifecycle rules on a bucket, additional IAM p
 ```
 ├── internaltools-production/
 │   ├── podplane.cluster.jsonc              # cluster config
-│   ├── podplane.main.tf                    # generated — cluster module, outputs
-│   ├── podplane.aws_123456789012_us-east-1.tf          # generated — provider, account, network, shards
-│   ├── podplane.google_my-project_us-central1.tf       # generated — provider, account, network, shards
+│   ├── podplane.main.tf                    # generated - cluster module, outputs
+│   ├── podplane.aws_123456789012_us-east-1.tf          # generated - provider, account, network, shards
+│   ├── podplane.google_my-project_us-central1.tf       # generated - provider, account, network, shards
 │   └── custom.tf                           # your custom infrastructure
 ```
 
