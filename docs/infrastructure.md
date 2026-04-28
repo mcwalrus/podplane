@@ -24,6 +24,8 @@ This layer also handles:
 - VM userdata configuration for downloading package dependencies for each `vmconfig` VM "kind"
 - Configuration for deploying an [Easy OIDC](https://easy-oidc.dev) server for cluster authentication (if you don't have an existing OIDC server)
 
+## Provisioning Flow
+
 The flow for AWS or Google Cloud is:
 1. `podplane cluster create`
     1. generates a `podplane.cluster.jsonc` config file.
@@ -31,6 +33,29 @@ The flow for AWS or Google Cloud is:
     3. optionally, can deploy the infrastructure as well.
 2. A Podplane provider for OpenTofu/Terraform invokes the CLI to generate Netsy snapshot files and uploads them to object storage (S3 for AWS, GCS for Google Cloud).
 3. Nstance auto-scales cluster VMs using the Podplane userdata script.
+
+## Design Philosophy
+
+Podplane's configuration aims to cover ~80% of infrastructure use cases. For the remaining 20%, the generated OpenTofu/Terraform files are designed to be extended with custom `.tf` files alongside them.
+
+### Generated vs Custom Code
+
+The CLI generates `podplane.*.tf` files alongside the `podplane.cluster.jsonc` config file. These files are fully managed by the CLI — `podplane cluster create` generates them and `podplane cluster upgrade` will regenerate them in the future. Users should never edit generated `.tf` files directly, instead tune the `podplane.cluster.jsonc` file or create additional custom `.tf` files.
+
+Generated files prefer composition of published [Nstance Terraform modules](https://github.com/nstance-dev/nstance/tree/main/deploy/tf) (`cluster`, `account`, `network`, `shard`) over defining raw cloud resources. The `podplane.main.tf` file contains the cluster module (hosted on the first provider) and shared outputs. Each provider gets its own file containing the provider configuration, account, network, and shard module calls.
+
+To add custom infrastructure (e.g. lifecycle rules on a bucket, additional IAM policies, extra cloud resources), create separate `.tf` files in the same directory. These files can reference outputs from the generated modules. The CLI will never modify files it didn't generate.
+
+```
+├── internaltools-production/
+│   ├── podplane.cluster.jsonc              # cluster config
+│   ├── podplane.main.tf                    # generated — cluster module, outputs
+│   ├── podplane.aws_123456789012_us-east-1.tf          # generated — provider, account, network, shards
+│   ├── podplane.google_my-project_us-central1.tf       # generated — provider, account, network, shards
+│   └── custom.tf                           # your custom infrastructure
+```
+
+`podplane cluster upgrade` will regenerate all `podplane.*.tf` files without touching any other files in the directory.
 
 ## Dependencies
 

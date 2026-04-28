@@ -14,6 +14,10 @@ podplane deploy <template> --name <name> --image <image>
 
 Templates may have component dependencies. If the required addon components aren't installed, the CLI will prompt you to install them.
 
+To update an existing app (e.g. to deploy a new image version), simply re-run `podplane deploy` with the same `--name`.
+
+Under the hood deploy runs `helm upgrade --install`.
+
 ## `web`
 
 The `web` template deploys a web application with automatic TLS and ingress routing.

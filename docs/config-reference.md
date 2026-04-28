@@ -1,0 +1,236 @@
+---
+title: "Config Reference"
+weight: 90
+description: "Reference for Podplane configuration files"
+---
+
+# Config Reference
+
+Podplane uses JSONC (JSON with comments) configuration files to store cluster and OIDC server settings. These files are generated interactively by `podplane cluster create` and `podplane oidc create`.
+
+## `podplane.cluster.jsonc`
+
+This file is the user-facing projection of cluster configuration. It is created in the current directory by `podplane cluster create` and is required by many CLI commands such as `podplane login` and `podplane install`.
+
+### Example
+
+```jsonc
+{
+  "cluster": {
+    "id": "internaltools-production",
+    "name": "Internal Tools (Production)",
+    "oidc": {
+      "issuer_url": "https://auth.example.com"
+    },
+    "domains": [
+      {
+        "zone": "internaltools.example.com",
+        "provider": {
+          "kind": "aws",
+          "account": "123456789012",
+          "profile": "default"
+        }
+      }
+    ],
+    "pools": {
+      "control-plane": {
+        "arch": "arm64",
+        "instance_type": "t4g.medium",
+        "size": 1
+      },
+      "ingress": {
+        "arch": "arm64",
+        "instance_type": "t4g.medium",
+        "size": 1
+      }
+    },
+    "providers": [
+      {
+        "kind": "aws",
+        "region": "us-east-1",
+        "account": "123456789012",
+        "profile": "default",
+        "tags": {
+          "podplane:environment": "production",
+          "podplane:managed-by": "podplane"
+        },
+        "vpc": {
+          "v4cidr": "172.18.0.0/16",
+          "v6cidr": "auto"
+        },
+        "zones": {
+          "us-east-1a": [
+            { "v4cidr": "172.18.10.0/28", "v6cidr": "auto", "services": ["nat", "nlb"], "public": true },
+            { "v4cidr": "172.18.20.0/28", "v6cidr": "auto", "services": ["nstance"] },
+            { "v4cidr": "172.18.1.0/24", "v6cidr": "auto", "pool": "control-plane" },
+            { "v4cidr": "172.18.3.0/24", "v6cidr": "auto", "pool": "ingress" }
+          ],
+          "us-east-1b": [
+            { "v4cidr": "172.18.11.0/28", "v6cidr": "auto", "services": ["nat", "nlb"], "public": true },
+            { "v4cidr": "172.18.21.0/28", "v6cidr": "auto", "services": ["nstance"] },
+            { "v4cidr": "172.18.2.0/24", "v6cidr": "auto", "pool": "control-plane" },
+            { "v4cidr": "172.18.4.0/24", "v6cidr": "auto", "pool": "ingress" }
+          ]
+        },
+        "load_balancer": {
+          "public": true,
+          "listeners": [
+            { "port": 6443, "pool": "control-plane" },
+            { "port": 80, "pool": "ingress" },
+            { "port": 443, "pool": "ingress" }
+          ]
+        },
+        "buckets": ["uploads", "assets"],
+        "roles": {
+          "app-storage": {
+            "buckets": ["uploads", "assets"]
+          },
+          "analytics": {
+            "buckets": ["uploads"],
+            "permissions": "read-only"
+          }
+        }
+      }
+    ],
+    "kubernetes": {
+      "cluster_cidr": ["100.64.0.0/10", "fd64::/48"],
+      "service_cidr": ["198.18.0.0/15", "fdc6::/108"]
+    },
+    "components": [
+      "traefik",
+      "cert-manager",
+      "nstance"
+    ]
+  }
+}
+```
+
+### Fields
+
+| Field | Description |
+|---|---|
+| `cluster.id` | Cluster identifier — lowercase alphanumeric and hypens, max 32 characters. Auto-generated from `name` by the CLI, used as a prefix for cloud resources and maps to Nstance `cluster_id`. |
+| `cluster.name` | Cluster name, used as a human-readable identifier |
+| `cluster.oidc.issuer_url` | OIDC issuer URL for cluster authentication (e.g. `https://auth.example.com`) |
+| `cluster.oidc.client_id` | OIDC client ID (defaults to `cluster.id` if not specified) |
+| `cluster.oidc.username_claim` | Token claim used as the username (default: `email`) |
+| `cluster.oidc.groups_claim` | Token claim used for group membership (default: `groups`) |
+| `cluster.oidc.signing_algs` | Allowed OIDC signing algorithms (default: `["ES256"]`) |
+| `cluster.domains[]` | Array of domain configurations. The first domain is used as the default for ingress routing. |
+| `cluster.domains[].zone` | Domain zone (e.g. `internaltools.example.com`) |
+| `cluster.domains[].provider.kind` | Domain DNS provider — `aws`, `cloudflare`, or `google` |
+| `cluster.pools.<name>.arch` | CPU architecture for the pool's nodes. `amd64` or `arm64` |
+| `cluster.pools.<name>.instance_type` | Cloud provider instance type (e.g. `t4g.medium` for AWS, `n2-standard-2` for Google Cloud) |
+| `cluster.pools.<name>.size` | Minimum number of instances in the pool |
+| `cluster.pools.<name>.disk_size` | Root volume size in GB (default: `100`) |
+| `cluster.providers[]` | Array of cloud provider configurations (supports multi-cloud). The available fields vary by `kind` — the fields below apply to `aws` and `google`. |
+| `cluster.providers[].kind` | Cloud provider — `aws`, `google`, or `proxmox` |
+| `cluster.providers[].region` | Provider region (e.g. `us-east-1` for AWS, `us-central1` for Google Cloud) |
+| `cluster.providers[].account` | AWS account ID (AWS only) |
+| `cluster.providers[].profile` | AWS CLI profile name (AWS only) |
+| `cluster.providers[].project` | Google Cloud project ID (Google Cloud only) |
+| `cluster.providers[].tags` | Key-value map of tags to apply to all cloud resources created by this provider (e.g. `{"podplane:environment": "production"}`) |
+| `cluster.providers[].vpc.id` | ID of an existing VPC to use (alternative to creating a new one with `v4cidr`) |
+| `cluster.providers[].vpc.v4cidr` | IPv4 CIDR block for creating a new VPC (or specify an `id` to use existing) |
+| `cluster.providers[].vpc.v6cidr` | IPv6 CIDR for the VPC — `"auto"` for provider-assigned or an explicit CIDR (optional, for dual-stack) |
+| `cluster.providers[].zones.<zone>[]` | Array of subnet definitions for this zone. Each entry has either `pool` (for node subnets) or `services` (for infrastructure subnets). |
+| `cluster.providers[].zones.<zone>[].pool` | Name of the pool this subnet belongs to (mutually exclusive with `services`) |
+| `cluster.providers[].zones.<zone>[].services` | Infrastructure services this subnet hosts — `nstance`, `nat`, and/or `nlb` (array, mutually exclusive with `pool`) |
+| `cluster.providers[].zones.<zone>[].public` | Whether the subnet is public — has a route to an internet gateway (default: `false`) |
+| `cluster.providers[].zones.<zone>[].id` | ID of an existing subnet to use (alternative to creating a new one with `v4cidr`) |
+| `cluster.providers[].zones.<zone>[].v4cidr` | IPv4 CIDR block for creating a new subnet (or specify an `id` to use existing) |
+| `cluster.providers[].zones.<zone>[].v6cidr` | IPv6 CIDR for the subnet — `"auto"` for provider-assigned or an explicit CIDR (optional, for dual-stack) |
+| `cluster.providers[].load_balancer.public` | Whether the load balancer is internet-facing (default: `false`) |
+| `cluster.providers[].load_balancer.listeners[]` | Array of listener configurations |
+| `cluster.providers[].load_balancer.listeners[].port` | Port to listen on |
+| `cluster.providers[].load_balancer.listeners[].pool` | Pool to route traffic to |
+| `cluster.providers[].load_balancer.listeners[].target_port` | Port on the target nodes (optional, defaults to `port`) |
+| `cluster.providers[].buckets` | Array of app-accessible object storage bucket names. Cloud bucket names are derived as `{cluster.id}-{name}`. |
+| `cluster.providers[].roles.<name>.buckets` | Array of bucket names this role can access |
+| `cluster.providers[].roles.<name>.permissions` | Resource access level — `read-write` or `read-only` (default: `read-write`) |
+| `cluster.kubernetes.api_hostname` | External hostname for the kube-apiserver (defaults to `k8s.<first domain zone>`) |
+| `cluster.kubernetes.api_port` | Port for the kube-apiserver (default: `6443`) |
+| `cluster.kubernetes.cluster_cidr` | CIDR ranges for Pod IPs, joined with commas for kube-controller-manager `--cluster-cidr` |
+| `cluster.kubernetes.service_cidr` | CIDR ranges for Service ClusterIPs, joined with commas for kube-apiserver `--service-cluster-ip-range` |
+| `cluster.components` | Which addon components are enabled (e.g. `traefik`, `cert-manager`, `nstance`) |
+
+**Validation rules:**
+- `cluster.id` must be lowercase alphanumeric with hyphens only, no leading/trailing/consecutive hyphens, max 32 characters.
+- `vpc.id` and `vpc.v4cidr`/`vpc.v6cidr` are mutually exclusive — specify an existing VPC ID or CIDRs to create a new VPC, not both.
+- Subnet `id` and `v4cidr`/`v6cidr` are mutually exclusive — specify an existing subnet ID or CIDRs to create a new subnet, not both.
+- Each subnet must have exactly one of `pool` or `services` — not both.
+- Subnets with `nat` or `nlb` in `services` must be `public: true`.
+- Role `buckets` entries must reference bucket names declared in the same provider's `buckets` array.
+
+## `podplane.oidc.jsonc`
+
+This file stores configuration for an [Easy OIDC](https://easy-oidc.dev) server deployment. It is created in the current directory by `podplane oidc create` and is required by `podplane oidc delete`.
+
+### Example
+
+```jsonc
+{
+  "oidc": {
+    "provider": {
+      "kind": "aws",
+      "region": "us-east-1",
+      "account": "123456789012",
+      "profile": "default"
+    },
+    "hostname": "auth.example.com",
+    "domain": {
+      "zone": "example.com",
+      "provider": {
+        "kind": "aws"
+      }
+    },
+    "connector": {
+      "kind": "google",
+      "client_secret_arn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:easy-oidc-connector-secret"
+    },
+    "signing_key_secret_arn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:easy-oidc-signing-key",
+    "default_redirect_uris": ["http://localhost:8000"],
+    "clients": {
+      "kubelogin-prod": {
+        "groups_override": "prod-groups"
+      },
+      "kubelogin-dev": {}
+    },
+    "groups_overrides": {
+      "prod-groups": {
+        "demo@example.com": ["prod-admins", "devs"]
+      }
+    }
+  }
+}
+```
+
+### Fields
+
+| Field | Description |
+|---|---|
+| `oidc.provider.kind` | Cloud provider — `aws` (Google Cloud and Azure are planned) |
+| `oidc.provider.region` | Provider region to deploy into (e.g. `us-east-1`) |
+| `oidc.provider.account` | Provider account identifier (e.g. AWS account ID) |
+| `oidc.provider.profile` | Provider credentials profile (e.g. AWS CLI profile name) |
+| `oidc.hostname` | The hostname for the OIDC server (e.g. `auth.example.com`) |
+| `oidc.domain.zone` | Domain zone for the hostname (e.g. `example.com`) |
+| `oidc.domain.provider.kind` | Domain DNS provider — `aws`, `cloudflare`, or `google` |
+| `oidc.connector.kind` | Upstream OAuth provider — `google` or `github` |
+| `oidc.connector.client_secret_arn` | ARN of the AWS Secrets Manager secret containing the OAuth client ID and secret |
+| `oidc.signing_key_secret_arn` | ARN of the AWS Secrets Manager secret containing the OIDC signing key |
+| `oidc.default_redirect_uris` | Default redirect URIs applied to clients that don't specify their own |
+| `oidc.clients.<name>` | Map of OIDC client configurations |
+| `oidc.clients.<name>.groups_override` | Name of a groups override to apply to the specified client (optional) |
+| `oidc.groups_overrides.<name>` | Static group mappings, where each key is an email and the value is an array of group names |
+
+## File Location
+
+By default, the CLI looks for config files in the current working directory. You can specify an alternate path using the `-f` flag:
+
+```bash
+podplane login -f ./my-cluster/podplane.cluster.jsonc
+podplane oidc delete -f ./auth-server/podplane.oidc.jsonc
+```
+
+See [CLI Overview](cli-overview.md#config-files--context) for recommended directory structure.

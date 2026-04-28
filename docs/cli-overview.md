@@ -34,22 +34,23 @@ Many commands require either a cluster config file, or OIDC config file.
 
 - For example, `podplane login` will require a cluster config file, and `podplane oidc delete` will require an oidc config file.
 
-The CLI uses the current working directory to find the relevant `podplane.cluster.jsonc` or `podplane.oidc.jsonc` config file.
+The CLI uses the current working directory to find the relevant `podplane.cluster.jsonc` or `podplane.oidc.jsonc` config file. See [Config Reference](config-reference.md) for the full file format documentation.
 
 - Alternatively, you can specify a config file path using the `-f` flag e.g. `podplane login -f ./my-cluster/podplane.cluster.jsonc`
 
 We recommend setting up a Git repository for storing all of your cluster and OIDC server infrastructure-as-code, for example:
 
 ```
-├── infra/                          # git repo
+├── infra/                                        # git repo
 │   │
-│   ├── auth-production/            # example Easy OIDC server
-│   │   ├── tf/                     # generated .tf files
-│   │   └── podplane.oidc.jsonc     # config file
+│   ├── auth-production/                          # example Easy OIDC server
+│   │   ├── podplane.oidc.jsonc                   # config file
+│   │   └── podplane.*.tf                         # generated .tf files
 │   │
-│   └── internaltools-production/   # example cluster
-│       ├── tf/                     # generated .tf files
-│       └── podplane.cluster.jsonc  # config file
+│   └── internaltools-production/                 # example cluster
+│       ├── podplane.cluster.jsonc                # config file
+│       ├── podplane.*.tf                         # generated .tf files
+│       └── custom.tf                             # optional custom infrastructure
 ```
 
 ## Commands Summary
@@ -79,8 +80,9 @@ These commands help you deploy workloads using templates such as the `web` or `w
 
 - `deploy <template> --name <name> --image <image>` deploy an app using a template. The CLI will prompt to install addon components if they have required dependencies which are not installed.
 - `remove <template> --name <name>` remove a previously deployed app.
+- `logs <name>` tail logs for a deployed app.
 
-Both of these commands are convenience functions which wrap `helm` commands.
+The `deploy` and `remove` commands are convenience functions which wrap `helm` commands. The `logs` command wraps `kubectl logs`.
 
 ### `install` / `uninstall` commands
 

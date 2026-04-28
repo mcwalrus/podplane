@@ -27,6 +27,7 @@ description: "Podplane CLI reference"
 
 - [podplane deploy](deploy.md) – Deploy an app using a template.
 - [podplane remove](remove.md) – Remove a previously deployed app.
+- [podplane logs](logs.md) – Tail logs for a deployed app.
 
 ## Component Commands
 
