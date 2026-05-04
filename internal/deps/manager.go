@@ -1,0 +1,23 @@
+// Podplane <https://podplane.dev>
+// Copyright 2026 Nadrama Pty Ltd
+// SPDX-License-Identifier: Apache-2.0
+
+package deps
+
+// Manager handles fetching and caching manifests and the artifacts/images
+// they reference.
+type Manager struct {
+	baseURL      string
+	depsCacheDir string
+}
+
+// NewManager creates a new deps manager.
+//
+// baseURL is the base URL used to fetch manifest files, e.g.
+// "https://cli.podplane.dev/deps". depsCacheDir is the local deps cache root.
+func NewManager(baseURL, depsCacheDir string) *Manager {
+	return &Manager{
+		baseURL:      baseURL,
+		depsCacheDir: depsCacheDir,
+	}
+}

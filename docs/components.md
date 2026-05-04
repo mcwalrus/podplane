@@ -30,8 +30,10 @@ Components are deployed with an opinionated, tested configuration - not the full
 - `fluxcd` for automated Podplane container-layer upgrades
     - `fluxcd-crds` for Flux CD
 - `gateway-api-crds` for any ingress controller using Gateway API, particularly Traefik
-- `platform`: Podplane reserved namespaces, components management, default trust bundles (enabled when trust-manager is installed), etc.
-- `rbac`: default RBAC configuration
+- `platform-components` for Podplane component management. This chart creates the Flux source, platform namespaces, and HelmReleases for enabled components.
+- `platform-certs` for default self-signed and ACME certificate issuers, CA, certificates, etc.
+- `platform-trust` for default trust bundles (enabled when trust-manager is installed)
+- `platform-rbac` for default Podplane platform RBAC and admission policies
 
 ### Addon Components
 

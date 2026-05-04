@@ -1,0 +1,341 @@
+// Podplane <https://podplane.dev>
+// Copyright 2026 Nadrama Pty Ltd
+// SPDX-License-Identifier: Apache-2.0
+
+package netsyinit
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/podplane/podplane/internal/clusterconfig"
+)
+
+const (
+	acmeIssuerName  = "platform-acme-clusterissuer"
+	localIssuerName = "platform-selfsigned-clusterissuer"
+)
+
+// BuildPlatformComponentsValues derives platform-components Helm values from
+// user-facing cluster config. The returned structure is JSON/YAML marshalable.
+func BuildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig) (map[string]any, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("cluster config is required")
+	}
+	values := map[string]any{
+		"platform": map[string]any{
+			"components": map[string]any{},
+		},
+	}
+	components := values["platform"].(map[string]any)["components"].(map[string]any)
+	applyProviderComponents(components, cfg.Cluster.Providers)
+	if len(cfg.Cluster.Domains) == 0 {
+		applyAddonComponents(components, cfg.Cluster.Components.Addons)
+		return values, nil
+	}
+
+	issuerName := localIssuerName
+	platformCerts := map[string]any{
+		"platform": map[string]any{
+			"certs": map[string]any{
+				"domains": certDomains(cfg.Cluster.Domains),
+			},
+		},
+	}
+	if cfg.Cluster.ACME != nil {
+		issuerName = acmeIssuerName
+		acme, err := acmeValues(cfg)
+		if err != nil {
+			return nil, err
+		}
+		platformCerts["platform"].(map[string]any)["certs"].(map[string]any)["acme"] = acme
+	}
+
+	components["crds"] = map[string]any{
+		"cert-manager-crds": map[string]any{"enabled": true},
+		"traefik-crds":      map[string]any{"enabled": true},
+		"gateway-api-crds":  map[string]any{"enabled": true},
+	}
+	components["apps"] = map[string]any{
+		"cert-manager":   map[string]any{"enabled": true},
+		"platform-certs": map[string]any{"enabled": true},
+		"traefik":        map[string]any{"enabled": true},
+	}
+	components["valuesObject"] = map[string]any{
+		"platform-certs": platformCerts,
+		"traefik": map[string]any{
+			"platform": map[string]any{
+				"traefik": map[string]any{
+					"ingress": map[string]any{
+						"enabled": true,
+						"issuerRef": map[string]any{
+							"kind": "ClusterIssuer",
+							"name": issuerName,
+						},
+						"domains": ingressDomains(cfg.Cluster.Domains),
+					},
+				},
+			},
+		},
+	}
+	if secretSync := secretSyncValues(cfg.Cluster.Domains); secretSync != nil {
+		platformCerts["platform"].(map[string]any)["certs"].(map[string]any)["secretSync"] = secretSync
+	}
+	applyAddonComponents(components, cfg.Cluster.Components.Addons)
+	return values, nil
+}
+
+// applyProviderComponents enables provider-specific core components required by
+// the configured infrastructure providers.
+func applyProviderComponents(components map[string]any, providers []clusterconfig.Provider) {
+	apps := ensureChildMap(components, "apps")
+	for _, provider := range providers {
+		switch provider.Kind {
+		case "aws":
+			apps["csi-aws-ebs"] = map[string]any{"enabled": true}
+		}
+	}
+}
+
+// applyAddonComponents enables user-selected addon app charts and their known
+// companion CRD charts in platform-components values.
+func applyAddonComponents(components map[string]any, addons []string) {
+	apps := ensureChildMap(components, "apps")
+	crds := ensureChildMap(components, "crds")
+	for _, addon := range addons {
+		if addon == "" {
+			continue
+		}
+		apps[addon] = map[string]any{"enabled": true}
+		switch addon {
+		case "cert-manager":
+			crds["cert-manager-crds"] = map[string]any{"enabled": true}
+		case "trust-manager":
+			crds["trust-manager-crds"] = map[string]any{"enabled": true}
+		case "traefik":
+			crds["traefik-crds"] = map[string]any{"enabled": true}
+		case "snapshot":
+			crds["snapshot-crds"] = map[string]any{"enabled": true}
+		}
+	}
+}
+
+// ensureChildMap returns the existing child map for key, or creates and stores
+// an empty map when the key is absent or not already a map.
+func ensureChildMap(parent map[string]any, key string) map[string]any {
+	if child, ok := parent[key].(map[string]any); ok {
+		return child
+	}
+	child := map[string]any{}
+	parent[key] = child
+	return child
+}
+
+// certDomains converts configured cluster domains into platform-certs domain
+// values.
+func certDomains(domains []clusterconfig.Domain) []map[string]any {
+	items := make([]map[string]any, 0, len(domains))
+	for _, domain := range domains {
+		items = append(items, map[string]any{"zone": domain.Zone})
+	}
+	return items
+}
+
+// ingressDomains converts configured cluster domains into Traefik ingress
+// domain values and marks the first domain as the default.
+func ingressDomains(domains []clusterconfig.Domain) []map[string]any {
+	items := make([]map[string]any, 0, len(domains))
+	for i, domain := range domains {
+		item := map[string]any{"zone": domain.Zone}
+		if i == 0 {
+			item["default"] = true
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+// acmeValues derives platform-certs ACME values from the cluster ACME and
+// domain provider configuration.
+func acmeValues(cfg *clusterconfig.ClusterConfig) (map[string]any, error) {
+	if cfg.Cluster.ACME.Server == "" {
+		return nil, fmt.Errorf("cluster.acme.server is required when cluster.acme is configured")
+	}
+	if cfg.Cluster.ACME.Email == "" {
+		return nil, fmt.Errorf("cluster.acme.email is required when cluster.acme is configured")
+	}
+	solvers, err := acmeSolvers(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"enabled":    true,
+		"issuerName": acmeIssuerName,
+		"server":     cfg.Cluster.ACME.Server,
+		"email":      cfg.Cluster.ACME.Email,
+		"solvers":    solvers,
+	}, nil
+}
+
+// acmeSolvers groups configured domains by equivalent DNS-01 provider settings
+// and returns deterministic cert-manager ACME solver values.
+func acmeSolvers(cfg *clusterconfig.ClusterConfig) ([]map[string]any, error) {
+	type solverGroup struct {
+		zones []string
+		value map[string]any
+	}
+	groups := map[string]*solverGroup{}
+	for _, domain := range cfg.Cluster.Domains {
+		provider := domain.Provider
+		if provider.Kind == "" {
+			return nil, fmt.Errorf("cluster.domains[] provider.kind is required for %s", domain.Zone)
+		}
+		providerValue, key, err := dnsProviderSolver(cfg, provider)
+		if err != nil {
+			return nil, fmt.Errorf("domain %s: %w", domain.Zone, err)
+		}
+		group, ok := groups[key]
+		if !ok {
+			group = &solverGroup{value: providerValue}
+			groups[key] = group
+		}
+		group.zones = append(group.zones, domain.Zone)
+	}
+	keys := make([]string, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	solvers := make([]map[string]any, 0, len(keys))
+	for _, key := range keys {
+		group := groups[key]
+		sort.Strings(group.zones)
+		solver := map[string]any{"dnsZones": group.zones}
+		for name, value := range group.value {
+			solver[name] = value
+		}
+		solvers = append(solvers, solver)
+	}
+	return solvers, nil
+}
+
+// dnsProviderSolver converts one domain provider into a cert-manager DNS-01
+// solver value and a stable grouping key.
+func dnsProviderSolver(cfg *clusterconfig.ClusterConfig, provider clusterconfig.DomainProvider) (map[string]any, string, error) {
+	switch provider.Kind {
+	case "aws":
+		region, err := awsRegion(cfg, provider)
+		if err != nil {
+			return nil, "", err
+		}
+		route53 := map[string]any{}
+		if region != "" {
+			route53["region"] = region
+		}
+		if provider.HostedZoneID != "" {
+			route53["hostedZoneID"] = provider.HostedZoneID
+		}
+		if provider.RoleARN != "" {
+			route53["roleArn"] = provider.RoleARN
+		}
+		return map[string]any{"route53": route53}, "aws|" + region + "|" + provider.HostedZoneID + "|" + provider.RoleARN, nil
+	case "cloudflare":
+		if provider.SecretName == "" {
+			return nil, "", fmt.Errorf("provider.secret_name is required for cloudflare DNS-01")
+		}
+		key := provider.SecretKey
+		if key == "" {
+			key = "api-token"
+		}
+		cloudflare := map[string]any{"apiTokenSecretRef": map[string]any{"name": provider.SecretName, "key": key}}
+		return map[string]any{"cloudflare": cloudflare}, "cloudflare|" + provider.SecretName + "|" + key, nil
+	case "google":
+		if provider.Project == "" {
+			return nil, "", fmt.Errorf("provider.project is required for google DNS-01")
+		}
+		cloudDNS := map[string]any{"project": provider.Project}
+		if provider.HostedZoneName != "" {
+			cloudDNS["hostedZoneName"] = provider.HostedZoneName
+		}
+		if provider.SecretName != "" {
+			key := provider.SecretKey
+			if key == "" {
+				key = "service-account.json"
+			}
+			cloudDNS["serviceAccountSecretRef"] = map[string]any{"name": provider.SecretName, "key": key}
+		}
+		return map[string]any{"cloudDNS": cloudDNS}, "google|" + provider.Project + "|" + provider.HostedZoneName + "|" + provider.SecretName + "|" + provider.SecretKey, nil
+	default:
+		return nil, "", fmt.Errorf("unsupported DNS provider kind %q", provider.Kind)
+	}
+}
+
+// awsRegion resolves the AWS region for a DNS provider from either the domain
+// provider itself or a single matching cluster-level AWS provider.
+func awsRegion(cfg *clusterconfig.ClusterConfig, provider clusterconfig.DomainProvider) (string, error) {
+	if provider.Region != "" {
+		return provider.Region, nil
+	}
+	var matches []clusterconfig.Provider
+	for _, p := range cfg.Cluster.Providers {
+		if p.Kind != "aws" {
+			continue
+		}
+		if provider.Account != "" && p.Account != provider.Account {
+			continue
+		}
+		if provider.Profile != "" && p.Profile != provider.Profile {
+			continue
+		}
+		matches = append(matches, p)
+	}
+	if len(matches) == 1 {
+		return matches[0].Region, nil
+	}
+	if len(matches) == 0 {
+		return "", nil
+	}
+	return "", fmt.Errorf("provider.region is required when multiple AWS providers match")
+}
+
+// secretSyncValues derives platform-certs secret sync values for unique Secret
+// Store CSI Driver provider classes referenced by configured domains.
+func secretSyncValues(domains []clusterconfig.Domain) map[string]any {
+	seen := map[string]bool{}
+	mounts := []map[string]any{}
+	for _, domain := range domains {
+		spc := domain.Provider.SecretProviderClassName
+		if spc == "" || seen[spc] {
+			continue
+		}
+		seen[spc] = true
+		mounts = append(mounts, map[string]any{
+			"name":                    secretSyncMountName(spc),
+			"secretProviderClassName": spc,
+			"mountPath":               "/mnt/secrets-store/" + secretSyncMountName(spc),
+		})
+	}
+	if len(mounts) == 0 {
+		return nil
+	}
+	return map[string]any{"enabled": true, "mounts": mounts}
+}
+
+func secretSyncMountName(value string) string {
+	value = strings.ToLower(value)
+	var b strings.Builder
+	lastHyphen := false
+	for _, r := range value {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+			lastHyphen = false
+			continue
+		}
+		if !lastHyphen {
+			b.WriteByte('-')
+			lastHyphen = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}

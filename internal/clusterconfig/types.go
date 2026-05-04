@@ -1,0 +1,191 @@
+// Podplane <https://podplane.dev>
+// Copyright 2026 Nadrama Pty Ltd
+// SPDX-License-Identifier: Apache-2.0
+
+package clusterconfig
+
+import "fmt"
+
+// ClusterConfig represents a cluster configuration file
+// Typically files are named podplane.cluster.jsonc or have
+// a .cluster.jsonc suffix.
+type ClusterConfig struct {
+	Cluster Cluster `json:"cluster"`
+}
+
+// Cluster groups everything under a top-level "cluster" object,
+// to assist with differentiating from a Podplane OIDC configuration
+// file (which typicaly has a .oidc.json suffix)
+type Cluster struct {
+	ID         string          `json:"id"`
+	Name       string          `json:"name"`
+	OIDC       OIDC            `json:"oidc"`
+	ACME       *ACME           `json:"acme,omitempty"`
+	Domains    []Domain        `json:"domains,omitempty"`
+	Pools      map[string]Pool `json:"pools,omitempty"`
+	Providers  []Provider      `json:"providers,omitempty"`
+	Kubernetes Kubernetes      `json:"kubernetes"`
+	Components Components      `json:"components,omitempty"`
+}
+
+// Components describes user-selected addon components and the Git source used
+// by the platform-components chart to reconcile component Helm charts.
+type Components struct {
+	Addons []string          `json:"addons,omitempty"`
+	Source *ComponentsSource `json:"source,omitempty"`
+}
+
+// ComponentsSource overrides the Git repository used by platform-components.
+type ComponentsSource struct {
+	URL string              `json:"url"`
+	Ref ComponentsSourceRef `json:"ref,omitempty"`
+}
+
+// ComponentsSourceRef selects a Git ref for the components source. At most one
+// field should be set.
+type ComponentsSourceRef struct {
+	Branch string `json:"branch,omitempty"`
+	Tag    string `json:"tag,omitempty"`
+	Semver string `json:"semver,omitempty"`
+	Commit string `json:"commit,omitempty"`
+}
+
+// ACME describes cluster-level ACME account configuration for ingress certs.
+type ACME struct {
+	Server string `json:"server"`
+	Email  string `json:"email"`
+}
+
+// OIDC describes the issuer the cluster's API server trusts.
+type OIDC struct {
+	IssuerURL     string   `json:"issuer_url"`
+	ClientID      string   `json:"client_id,omitempty"`
+	UsernameClaim string   `json:"username_claim,omitempty"`
+	GroupsClaim   string   `json:"groups_claim,omitempty"`
+	SigningAlgs   []string `json:"signing_algs,omitempty"`
+	// CACert may be: an inline PEM (string starts with "-----BEGIN"), an
+	// http(s):// URL, or a path on disk.
+	CACert string `json:"ca_cert,omitempty"`
+}
+
+// Domain is one entry in cluster.domains.
+type Domain struct {
+	Zone     string         `json:"zone"`
+	Provider DomainProvider `json:"provider"`
+}
+
+// DomainProvider is the DNS provider for a Domain.
+type DomainProvider struct {
+	Kind                    string `json:"kind"`
+	Account                 string `json:"account,omitempty"`
+	Profile                 string `json:"profile,omitempty"`
+	Region                  string `json:"region,omitempty"`
+	HostedZoneID            string `json:"hosted_zone_id,omitempty"`
+	RoleARN                 string `json:"role_arn,omitempty"`
+	SecretProviderClassName string `json:"secret_provider_class_name,omitempty"`
+	SecretName              string `json:"secret_name,omitempty"`
+	SecretKey               string `json:"secret_key,omitempty"`
+	Project                 string `json:"project,omitempty"`
+	HostedZoneName          string `json:"hosted_zone_name,omitempty"`
+}
+
+// Pool is one entry in cluster.pools.<name>.
+type Pool struct {
+	Arch         string `json:"arch"`
+	InstanceType string `json:"instance_type"`
+	Size         int    `json:"size"`
+	DiskSize     int    `json:"disk_size,omitempty"`
+}
+
+// Provider is one entry in cluster.providers[].
+type Provider struct {
+	Kind         string              `json:"kind"`
+	Region       string              `json:"region,omitempty"`
+	Account      string              `json:"account,omitempty"`
+	Profile      string              `json:"profile,omitempty"`
+	Project      string              `json:"project,omitempty"`
+	Tags         map[string]string   `json:"tags,omitempty"`
+	VPC          VPC                 `json:"vpc"`
+	Zones        map[string][]Subnet `json:"zones,omitempty"`
+	LoadBalancer LoadBalancer        `json:"load_balancer"`
+	Buckets      []string            `json:"buckets,omitempty"`
+	Roles        map[string]Role     `json:"roles,omitempty"`
+}
+
+// VPC describes the cluster's VPC. Either ID (existing) or V4CIDR/V6CIDR
+// (create new) is set, not both.
+type VPC struct {
+	ID     string `json:"id,omitempty"`
+	V4CIDR string `json:"v4cidr,omitempty"`
+	V6CIDR string `json:"v6cidr,omitempty"`
+}
+
+// Subnet is one entry in cluster.providers[].zones.<zone>[].
+type Subnet struct {
+	Pool     string   `json:"pool,omitempty"`
+	Services []string `json:"services,omitempty"`
+	Public   bool     `json:"public,omitempty"`
+	ID       string   `json:"id,omitempty"`
+	V4CIDR   string   `json:"v4cidr,omitempty"`
+	V6CIDR   string   `json:"v6cidr,omitempty"`
+}
+
+// LoadBalancer describes the provider's external load balancer.
+type LoadBalancer struct {
+	Public    bool       `json:"public"`
+	Listeners []Listener `json:"listeners,omitempty"`
+}
+
+// Listener is one entry in cluster.providers[].load_balancer.listeners[].
+type Listener struct {
+	Port       int    `json:"port"`
+	Pool       string `json:"pool"`
+	TargetPort int    `json:"target_port,omitempty"`
+}
+
+// Role is one entry in cluster.providers[].roles.<name>.
+type Role struct {
+	Buckets     []string `json:"buckets"`
+	Permissions string   `json:"permissions,omitempty"`
+}
+
+// Kubernetes describes how the API server is reached and configured.
+type Kubernetes struct {
+	APIHostname string   `json:"api_hostname,omitempty"`
+	APIPort     int      `json:"api_port,omitempty"`
+	ClusterCIDR []string `json:"cluster_cidr,omitempty"`
+	ServiceCIDR []string `json:"service_cidr,omitempty"`
+}
+
+// ResolvedClientID returns the configured OIDC client_id, defaulting to the
+// cluster ID.
+func (c *ClusterConfig) ResolvedClientID() string {
+	if c.Cluster.OIDC.ClientID != "" {
+		return c.Cluster.OIDC.ClientID
+	}
+	return c.Cluster.ID
+}
+
+// ResolvedUsernameClaim returns the configured username_claim, defaulting to
+// "email".
+func (c *ClusterConfig) ResolvedUsernameClaim() string {
+	if c.Cluster.OIDC.UsernameClaim != "" {
+		return c.Cluster.OIDC.UsernameClaim
+	}
+	return "email"
+}
+
+// ResolvedKubernetesAPIURL builds the https URL for the cluster's API server.
+// Defaults to port 6443 if api_port is unset. Returns "" if api_hostname is
+// not set.
+func (c *ClusterConfig) ResolvedKubernetesAPIURL() string {
+	host := c.Cluster.Kubernetes.APIHostname
+	if host == "" {
+		return ""
+	}
+	port := c.Cluster.Kubernetes.APIPort
+	if port == 0 {
+		port = 6443
+	}
+	return fmt.Sprintf("https://%s:%d", host, port)
+}

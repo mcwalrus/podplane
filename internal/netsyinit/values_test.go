@@ -1,0 +1,142 @@
+// Podplane <https://podplane.dev>
+// Copyright 2026 Nadrama Pty Ltd
+// SPDX-License-Identifier: Apache-2.0
+
+package netsyinit
+
+import (
+	"testing"
+
+	"github.com/podplane/podplane/internal/clusterconfig"
+)
+
+func TestBuildPlatformComponentsValuesLocalDomain(t *testing.T) {
+	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{Domains: []clusterconfig.Domain{{Zone: "internaltools.localhost", Provider: clusterconfig.DomainProvider{Kind: "local"}}}}}
+	values, err := BuildPlatformComponentsValues(cfg)
+	if err != nil {
+		t.Fatalf("BuildPlatformComponentsValues error = %v", err)
+	}
+	ingress := valuesObject(values, "traefik")["platform"].(map[string]any)["traefik"].(map[string]any)["ingress"].(map[string]any)
+	issuer := ingress["issuerRef"].(map[string]any)
+	if got, want := issuer["name"], "platform-selfsigned-clusterissuer"; got != want {
+		t.Fatalf("issuerRef.name = %v, want %v", got, want)
+	}
+	domains := ingress["domains"].([]map[string]any)
+	if got, want := domains[0]["zone"], "internaltools.localhost"; got != want {
+		t.Fatalf("domain zone = %v, want %v", got, want)
+	}
+	if got, want := domains[0]["default"], true; got != want {
+		t.Fatalf("domain default = %v, want %v", got, want)
+	}
+}
+
+func TestBuildPlatformComponentsValuesAddons(t *testing.T) {
+	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
+		Components: clusterconfig.Components{Addons: []string{"traefik", "snapshot"}},
+	}}
+	values, err := BuildPlatformComponentsValues(cfg)
+	if err != nil {
+		t.Fatalf("BuildPlatformComponentsValues error = %v", err)
+	}
+	components := values["platform"].(map[string]any)["components"].(map[string]any)
+	apps := components["apps"].(map[string]any)
+	for _, name := range []string{"traefik", "snapshot"} {
+		app := apps[name].(map[string]any)
+		if got, want := app["enabled"], true; got != want {
+			t.Fatalf("apps.%s.enabled = %v, want %v", name, got, want)
+		}
+	}
+	crds := components["crds"].(map[string]any)
+	for _, name := range []string{"traefik-crds", "snapshot-crds"} {
+		crd := crds[name].(map[string]any)
+		if got, want := crd["enabled"], true; got != want {
+			t.Fatalf("crds.%s.enabled = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestBuildPlatformComponentsValuesAWSProviderEnablesEBSCSI(t *testing.T) {
+	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
+		Providers: []clusterconfig.Provider{{Kind: "aws"}},
+	}}
+	values, err := BuildPlatformComponentsValues(cfg)
+	if err != nil {
+		t.Fatalf("BuildPlatformComponentsValues error = %v", err)
+	}
+	components := values["platform"].(map[string]any)["components"].(map[string]any)
+	apps := components["apps"].(map[string]any)
+	app := apps["csi-aws-ebs"].(map[string]any)
+	if got, want := app["enabled"], true; got != want {
+		t.Fatalf("apps.csi-aws-ebs.enabled = %v, want %v", got, want)
+	}
+}
+
+func TestBuildPlatformComponentsValuesGroupsAWSSolvers(t *testing.T) {
+	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
+		ACME:      &clusterconfig.ACME{Server: "https://acme.example/directory", Email: "ops@example.com"},
+		Providers: []clusterconfig.Provider{{Kind: "aws", Account: "123", Region: "us-east-1"}},
+		Domains: []clusterconfig.Domain{
+			{Zone: "example.com", Provider: clusterconfig.DomainProvider{Kind: "aws", Account: "123", HostedZoneID: "Z123", RoleARN: "arn:aws:iam::123:role/cert-manager"}},
+			{Zone: "example.net", Provider: clusterconfig.DomainProvider{Kind: "aws", Account: "123", HostedZoneID: "Z123", RoleARN: "arn:aws:iam::123:role/cert-manager"}},
+		},
+	}}
+	values, err := BuildPlatformComponentsValues(cfg)
+	if err != nil {
+		t.Fatalf("BuildPlatformComponentsValues error = %v", err)
+	}
+	certs := valuesObject(values, "platform-certs")["platform"].(map[string]any)["certs"].(map[string]any)
+	acme := certs["acme"].(map[string]any)
+	solvers := acme["solvers"].([]map[string]any)
+	if got, want := len(solvers), 1; got != want {
+		t.Fatalf("solver count = %d, want %d", got, want)
+	}
+	zones := solvers[0]["dnsZones"].([]string)
+	if got, want := len(zones), 2; got != want {
+		t.Fatalf("dnsZones count = %d, want %d", got, want)
+	}
+	route53 := solvers[0]["route53"].(map[string]any)
+	if got, want := route53["region"], "us-east-1"; got != want {
+		t.Fatalf("route53.region = %v, want %v", got, want)
+	}
+	if got, want := route53["hostedZoneID"], "Z123"; got != want {
+		t.Fatalf("route53.hostedZoneID = %v, want %v", got, want)
+	}
+}
+
+func TestBuildPlatformComponentsValuesCloudflareSecretSync(t *testing.T) {
+	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
+		ACME: &clusterconfig.ACME{Server: "https://acme.example/directory", Email: "ops@example.com"},
+		Domains: []clusterconfig.Domain{{Zone: "example.com", Provider: clusterconfig.DomainProvider{
+			Kind: "cloudflare", SecretName: "cloudflare-dns01", SecretProviderClassName: "cloudflare-dns01",
+		}}},
+	}}
+	values, err := BuildPlatformComponentsValues(cfg)
+	if err != nil {
+		t.Fatalf("BuildPlatformComponentsValues error = %v", err)
+	}
+	certs := valuesObject(values, "platform-certs")["platform"].(map[string]any)["certs"].(map[string]any)
+	if certs["secretSync"] == nil {
+		t.Fatalf("expected secretSync values")
+	}
+	solver := certs["acme"].(map[string]any)["solvers"].([]map[string]any)[0]
+	ref := solver["cloudflare"].(map[string]any)["apiTokenSecretRef"].(map[string]any)
+	if got, want := ref["name"], "cloudflare-dns01"; got != want {
+		t.Fatalf("cloudflare secret name = %v, want %v", got, want)
+	}
+}
+
+func TestBuildPlatformComponentsValuesAmbiguousAWSRegion(t *testing.T) {
+	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
+		ACME:      &clusterconfig.ACME{Server: "https://acme.example/directory", Email: "ops@example.com"},
+		Providers: []clusterconfig.Provider{{Kind: "aws", Region: "us-east-1"}, {Kind: "aws", Region: "us-west-2"}},
+		Domains:   []clusterconfig.Domain{{Zone: "example.com", Provider: clusterconfig.DomainProvider{Kind: "aws"}}},
+	}}
+	if _, err := BuildPlatformComponentsValues(cfg); err == nil {
+		t.Fatalf("expected ambiguous AWS provider error")
+	}
+}
+
+func valuesObject(values map[string]any, name string) map[string]any {
+	components := values["platform"].(map[string]any)["components"].(map[string]any)
+	return components["valuesObject"].(map[string]any)[name].(map[string]any)
+}

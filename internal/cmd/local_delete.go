@@ -1,0 +1,36 @@
+// Podplane <https://podplane.dev>
+// Copyright 2026 Nadrama Pty Ltd
+// SPDX-License-Identifier: Apache-2.0
+
+package cmd
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/podplane/podplane/internal/clusterauth"
+	"github.com/podplane/podplane/internal/config"
+	"github.com/podplane/podplane/internal/local"
+	"github.com/spf13/cobra"
+)
+
+var localDeleteCmd = &cobra.Command{
+	Use:   "delete",
+	Short: "Delete a local cluster",
+	Long:  `Delete a running local cluster and its VM`,
+}
+
+func newLocalDeleteCmd(c *config.Config) *cobra.Command {
+	localDeleteCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		manager := local.NewManager(c, localClusterID)
+		if err := clusterauth.Logout(c, os.Stdout, localClusterID, true); err != nil {
+			return fmt.Errorf("failed to clear local cluster credentials: %w", err)
+		}
+		if err := manager.Delete(); err != nil {
+			return fmt.Errorf("failed to delete: %w", err)
+		}
+		return nil
+	}
+
+	return localDeleteCmd
+}

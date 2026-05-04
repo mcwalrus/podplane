@@ -16,4 +16,4 @@ podplane logout [flags]
 
 | Flag | Description |
 | --- | --- |
-| `-f, --file string` | Path to the cluster config file (default: `podplane.cluster.jsonc` in the current directory) |
+| `-f, --cluster-config string` | Path to the cluster config file (default: `podplane.cluster.jsonc` in the current directory) |

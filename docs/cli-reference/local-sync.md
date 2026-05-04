@@ -1,6 +1,6 @@
 ---
 title: "local sync"
-weight: 75
+weight: 76
 description: "Sync files into a local cluster VM"
 ---
 

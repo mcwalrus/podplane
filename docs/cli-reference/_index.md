@@ -41,14 +41,15 @@ description: "Podplane CLI reference"
 - [podplane local status](local-status.md) – Report the status of a local cluster VM.
 - [podplane local stop](local-stop.md) – Stop a local cluster VM.
 - [podplane local delete](local-delete.md) – Delete a local cluster VM and its state files.
-- [podplane local shell](local-shell.md) – Open a shell into a local cluster VM.
+- [podplane local shell](local-shell.md) – Open a shell into a local cluster VM via SSH.
+- [podplane local console](local-console.md) – Attach to a local cluster VM serial console.
 - [podplane local sync](local-sync.md) – Sync files into a local cluster VM.
 - [podplane local server](local-server.md) – Run a local background server for VMs.
 
-## Package Commands
+## Deps Commands
 
-- [podplane package status](package-status.md) – Report package cache status.
-- [podplane package download](package-download.md) – Download latest package versions.
+- [podplane deps status](deps-status.md) – Report package cache status.
+- [podplane deps download](deps-download.md) – Download latest package versions.
 
 ## Informational Commands
 

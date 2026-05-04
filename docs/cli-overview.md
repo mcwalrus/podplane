@@ -23,7 +23,7 @@ The Podplane CLI can be divided into groups of commands:
 - app commands for deploying and removing apps using templates
 - component commands for managing addon components
 - `local` for managing local VM clusters
-- `package` for managing local VM dependency packages
+- `deps` for managing local VM dependency packages
 - informational commands
 
 Each CLI command group is summarised below.
@@ -52,6 +52,21 @@ We recommend setting up a Git repository for storing all of your cluster and OID
 │       ├── podplane.*.tf                         # generated .tf files
 │       └── custom.tf                             # optional custom infrastructure
 ```
+
+## CLI Storage
+
+Podplane also stores CLI-owned files outside your project directories. These
+files are separate from project configuration files such as
+`podplane.cluster.jsonc` and `podplane.oidc.jsonc`.
+
+Podplane classifies CLI-owned storage into XDG-aligned categories:
+
+- **Config**: long-term config/auth metadata; meaningful to back up.
+- **Cache**: downloaded or derived files that are safe to delete.
+- **Data**: durable local VM / local-cluster files.
+- **Runtime**: ephemeral process metadata; recreated by restarting Podplane processes.
+
+See [CLI Storage](cli-storage.md) for more details about these files and how they are stored.
 
 ## Commands Summary
 
@@ -105,7 +120,8 @@ You can run multiple single-node cluster VMs. If a name is omitted, `default` is
 
 The following commands exist primarily for Podplane development work on the `vmconfig` package:
 
-- `shell [name]` open a shell into the local cluster VM or run a command via ssh
+- `shell [name]` open a shell into the local cluster VM or run a command via SSH
+- `console [name]` attach to the local cluster VM serial console for boot/login debugging; press `Ctrl-]` to detach
 - `sync [name]` rsync files into the local cluster VM
 
 The following command exists primarily for debugging:
@@ -114,12 +130,12 @@ The following command exists primarily for debugging:
 
 Note `server` is run automatically in the background when `local start` is used, and stopped on `local stop` of the last running VM.
 
-### `package` commands
+### `deps` commands
 
-The `local` commands automatically download and cache packages. These commands exist primarily for debugging that cache.
+The `local` commands automatically download and cache dependencies. These commands exist primarily for debugging that cache.
 
-- `status` reports current state of the cache and if any new package versions are available to download
-- `download` force-downloads the latest package versions
+- `status` reports current state of the cache and if any new dependency versions are available to download
+- `download` force-downloads the latest dependency versions
 
 ### informational commands
 

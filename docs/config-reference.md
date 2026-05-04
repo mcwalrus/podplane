@@ -1,6 +1,6 @@
 ---
 title: "Config Reference"
-weight: 90
+weight: 100
 description: "Reference for Podplane configuration files"
 ---
 
@@ -22,13 +22,20 @@ This file is the user-facing projection of cluster configuration. It is created 
     "oidc": {
       "issuer_url": "https://auth.example.com"
     },
+    "acme": {
+      "server": "https://acme-v02.api.letsencrypt.org/directory",
+      "email": "platform-ops@example.com"
+    },
     "domains": [
       {
         "zone": "internaltools.example.com",
         "provider": {
           "kind": "aws",
           "account": "123456789012",
-          "profile": "default"
+          "profile": "default",
+          "region": "us-east-1",
+          "hosted_zone_id": "Z0123456789",
+          "role_arn": "arn:aws:iam::123456789012:role/podplane-cert-manager-dns01"
         }
       }
     ],
@@ -96,11 +103,18 @@ This file is the user-facing projection of cluster configuration. It is created 
       "cluster_cidr": ["100.64.0.0/10", "fd64::/48"],
       "service_cidr": ["198.18.0.0/15", "fdc6::/108"]
     },
-    "components": [
-      "traefik",
-      "cert-manager",
-      "nstance"
-    ]
+    "components": {
+      "addons": [
+        "traefik",
+        "cert-manager"
+      ],
+      "source": {
+        "url": "https://github.com/podplane/components.git",
+        "ref": {
+          "branch": "main"
+        }
+      }
+    }
   }
 }
 ```
@@ -116,9 +130,19 @@ This file is the user-facing projection of cluster configuration. It is created 
 | `cluster.oidc.username_claim` | Token claim used as the username (default: `email`) |
 | `cluster.oidc.groups_claim` | Token claim used for group membership (default: `groups`) |
 | `cluster.oidc.signing_algs` | Allowed OIDC signing algorithms (default: `["ES256"]`) |
+| `cluster.acme.server` | ACME directory URL used for production ingress certificates. When set with `cluster.acme.email`, Podplane configures cert-manager DNS-01 issuers. Omit `cluster.acme` for local/self-signed ingress certificates. |
+| `cluster.acme.email` | ACME account email address for expiry and account notices. |
 | `cluster.domains[]` | Array of domain configurations. The first domain is used as the default for ingress routing. |
 | `cluster.domains[].zone` | Domain zone (e.g. `internaltools.example.com`) |
-| `cluster.domains[].provider.kind` | Domain DNS provider - `aws`, `cloudflare`, or `google` |
+| `cluster.domains[].provider.kind` | Domain DNS provider - `aws`, `cloudflare`, `google`, or `local` for local clusters. |
+| `cluster.domains[].provider.region` | AWS Route53 region for DNS-01. If omitted, Podplane can infer it when exactly one matching AWS provider exists. |
+| `cluster.domains[].provider.hosted_zone_id` | AWS Route53 hosted zone ID for the domain (optional but recommended when using AWS DNS-01). |
+| `cluster.domains[].provider.role_arn` | AWS IAM role ARN cert-manager should assume for Route53 DNS-01 changes. |
+| `cluster.domains[].provider.secret_provider_class_name` | Existing Secrets Store CSI `SecretProviderClass` to mount so external secret material can be synced before cert-manager uses it. |
+| `cluster.domains[].provider.secret_name` | Kubernetes Secret name containing DNS provider credentials. Required for Cloudflare DNS-01 and optional for Google CloudDNS when using a service account key. |
+| `cluster.domains[].provider.secret_key` | Key inside `secret_name`. Defaults to `api-token` for Cloudflare and `service-account.json` for Google CloudDNS. |
+| `cluster.domains[].provider.project` | Google Cloud project ID for CloudDNS DNS-01. |
+| `cluster.domains[].provider.hosted_zone_name` | Google CloudDNS managed zone name for the domain (optional). |
 | `cluster.pools.<name>.arch` | CPU architecture for the pool's nodes. `amd64` or `arm64` |
 | `cluster.pools.<name>.instance_type` | Cloud provider instance type (e.g. `t4g.medium` for AWS, `n2-standard-2` for Google Cloud) |
 | `cluster.pools.<name>.size` | Minimum number of instances in the pool |
@@ -152,7 +176,12 @@ This file is the user-facing projection of cluster configuration. It is created 
 | `cluster.kubernetes.api_port` | Port for the kube-apiserver (default: `6443`) |
 | `cluster.kubernetes.cluster_cidr` | CIDR ranges for Pod IPs, joined with commas for kube-controller-manager `--cluster-cidr` |
 | `cluster.kubernetes.service_cidr` | CIDR ranges for Service ClusterIPs, joined with commas for kube-apiserver `--service-cluster-ip-range` |
-| `cluster.components` | Which addon components are enabled (e.g. `traefik`, `cert-manager`, `nstance`) |
+| `cluster.components.addons` | Which addon components are enabled (e.g. `traefik`, `cert-manager`) |
+| `cluster.components.source.url` | Git repository URL used by `platform-components` as the source for component Helm charts. Defaults to the published Podplane components repository when omitted. |
+| `cluster.components.source.ref.branch` | Git branch to use for component Helm charts. |
+| `cluster.components.source.ref.tag` | Git tag to use for component Helm charts. Mutually exclusive with other `source.ref` selectors. |
+| `cluster.components.source.ref.semver` | Git semver range to use for component Helm charts. Mutually exclusive with other `source.ref` selectors. |
+| `cluster.components.source.ref.commit` | Git commit to use for component Helm charts. Mutually exclusive with other `source.ref` selectors. |
 
 **Validation rules:**
 - `cluster.id` must be lowercase alphanumeric with hyphens only, no leading/trailing/consecutive hyphens, max 32 characters.
