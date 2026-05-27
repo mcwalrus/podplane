@@ -7,12 +7,12 @@ description: "Podplane CLI reference"
 ## Cluster Commands
 
 - [podplane cluster create](cluster-create.md) – Generate cluster configuration and deploy infrastructure.
-- [podplane cluster delete](cluster-delete.md) – Remove deployed cluster infrastructure and generated files.
+- [podplane cluster delete](cluster-delete.md) – Remove deployed cluster infrastructure.
 
 ## OIDC Commands
 
 - [podplane oidc create](oidc-create.md) – Generate OIDC configuration and deploy infrastructure.
-- [podplane oidc delete](oidc-delete.md) – Remove deployed OIDC infrastructure and generated files.
+- [podplane oidc delete](oidc-delete.md) – Remove deployed OIDC infrastructure.
 
 ## Authentication Commands
 
@@ -22,7 +22,6 @@ description: "Podplane CLI reference"
 ## Hooks Commands
 
 - [podplane hooks kubectl-auth](hooks-kubectl-auth.md) – kubectl exec auth plugin.
-- [podplane hooks netsy-init](hooks-netsy-init.md) – Generate an initial Netsy snapshot file from a template.
 
 ## App Commands
 

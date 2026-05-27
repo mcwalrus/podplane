@@ -1,0 +1,180 @@
+// Podplane <https://podplane.dev>
+// Copyright 2026 Nadrama Pty Ltd
+// SPDX-License-Identifier: Apache-2.0
+
+package tfgen
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/podplane/podplane/internal/clusterconfig"
+	"github.com/podplane/podplane/internal/oidcconfig"
+)
+
+// TestGenerateAWSClusterTerraform verifies the generated AWS cluster Terraform
+// contains the expected provider modules and group references.
+func TestGenerateAWSClusterTerraform(t *testing.T) {
+	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
+		ID:   "test-cluster",
+		Name: "Test Cluster",
+		OIDC: clusterconfig.OIDC{IssuerURL: "https://auth.example.com"},
+		Seed: clusterconfig.Seed{Name: "recommended", Version: "v1.0.0-1"},
+		Pools: map[string]clusterconfig.Pool{
+			"control-plane": {Arch: "arm64", InstanceType: "t4g.medium", Size: 1},
+		},
+		Providers: []clusterconfig.Provider{{
+			Kind:    "aws",
+			Region:  "us-east-1",
+			Account: "123456789012",
+			VPC:     clusterconfig.VPC{V4CIDR: "172.18.0.0/16", V6CIDR: "auto"},
+			Zones: map[string][]clusterconfig.Subnet{
+				"us-east-1a": {
+					{V4CIDR: "172.18.10.0/28", Services: []string{"nat", "nlb"}, Public: true},
+					{V4CIDR: "172.18.20.0/28", Services: []string{"nstance"}},
+					{V4CIDR: "172.18.1.0/24", Pool: "control-plane"},
+				},
+			},
+			LoadBalancer: clusterconfig.LoadBalancer{
+				Public:    true,
+				Listeners: []clusterconfig.Listener{{Port: 6443, Pool: "control-plane"}},
+			},
+		}},
+	}}
+	files, err := GenerateCluster(filepath.Join(t.TempDir(), "podplane.cluster.jsonc"), cfg)
+	if err != nil {
+		t.Fatalf("GenerateCluster returned error: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("len(files) = %d, want 1", len(files))
+	}
+	if files[0].Name != "podplane.cluster.tf" {
+		t.Fatalf("files[0].Name = %q, want podplane.cluster.tf", files[0].Name)
+	}
+	got := files[0].Content
+	assertExpectedTerraform(t, "podplane.cluster.expected.tf", got)
+	for _, want := range []string{
+		`provider "aws"`,
+		`module "network_123456789012_us_east_1"`,
+		`source = "podplane/podplane"`,
+		`resource "podplane_netsy_seed_s3" "cluster"`,
+		`cluster_config_path = "${path.module}/podplane.cluster.jsonc"`,
+		`bucket = aws_s3_bucket.netsy.bucket`,
+		`"public-control-plane" = { ports = [6443], subnets = "public", public = true }`,
+		`load_balancers = ["public-control-plane"]`,
+		`REGISTRY_ASSUME_ROLE = aws_iam_role.registry_read_only.arn`,
+		`output "registry_read_write_role_arn"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("generated cluster tf missing %q:\n%s", want, got)
+		}
+	}
+}
+
+// TestGenerateAWSClusterTerraformWithoutSeed verifies bare clusters do not
+// upload an empty Netsy seed snapshot.
+func TestGenerateAWSClusterTerraformWithoutSeed(t *testing.T) {
+	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
+		ID:   "bare-cluster",
+		Name: "Bare Cluster",
+		OIDC: clusterconfig.OIDC{IssuerURL: "https://auth.example.com"},
+		Pools: map[string]clusterconfig.Pool{
+			"control-plane": {Arch: "arm64", InstanceType: "t4g.medium", Size: 1},
+		},
+		Providers: []clusterconfig.Provider{{
+			Kind:    "aws",
+			Region:  "us-east-1",
+			Account: "123456789012",
+			VPC:     clusterconfig.VPC{V4CIDR: "172.18.0.0/16"},
+			Zones: map[string][]clusterconfig.Subnet{
+				"us-east-1a": {{V4CIDR: "172.18.1.0/24", Pool: "control-plane"}},
+			},
+		}},
+	}}
+	files, err := GenerateCluster(filepath.Join(t.TempDir(), "podplane.cluster.jsonc"), cfg)
+	if err != nil {
+		t.Fatalf("GenerateCluster returned error: %v", err)
+	}
+	if strings.Contains(files[0].Content, `resource "podplane_netsy_seed_s3" "cluster"`) {
+		t.Fatalf("generated cluster tf unexpectedly contains seed resource:\n%s", files[0].Content)
+	}
+}
+
+// TestGenerateAWSOIDCTerraform verifies the generated AWS OIDC Terraform
+// contains the expected Easy OIDC settings.
+func TestGenerateAWSOIDCTerraform(t *testing.T) {
+	cfg := &oidcconfig.Config{OIDC: oidcconfig.OIDC{
+		Provider:            oidcconfig.Provider{Kind: "aws", Region: "us-east-1", Account: "123456789012"},
+		Hostname:            "https://auth.example.com",
+		Domain:              oidcconfig.Domain{Zone: "example.com", Provider: oidcconfig.DomainProvider{Kind: "aws"}},
+		Connector:           oidcconfig.Connector{Kind: "google", ClientSecretARN: "arn:connector"},
+		SigningKeySecretARN: "arn:signing",
+		DefaultRedirectURIs: []string{"http://localhost:8000"},
+		Clients:             map[string]oidcconfig.Client{"kubelogin": {}},
+	}}
+	files, err := GenerateOIDC(cfg)
+	if err != nil {
+		t.Fatalf("GenerateOIDC returned error: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("len(files) = %d, want 1", len(files))
+	}
+	if files[0].Name != "podplane.oidc.tf" {
+		t.Fatalf("files[0].Name = %q, want podplane.oidc.tf", files[0].Name)
+	}
+	got := files[0].Content
+	assertExpectedTerraform(t, "podplane.oidc.expected.tf", got)
+	for _, want := range []string{
+		`oidc_addr = "auth.example.com"`,
+		`connector_type = "google"`,
+		`route53_zone_id = data.aws_route53_zone.oidc.zone_id`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("generated OIDC tf missing %q:\n%s", want, got)
+		}
+	}
+}
+
+// assertExpectedTerraform compares generated Terraform with a testdata file.
+func assertExpectedTerraform(t *testing.T, name string, got string) {
+	t.Helper()
+	path := filepath.Join("testdata", name)
+	if os.Getenv("UPDATE_TFGEN_EXPECTED") == "1" {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != got {
+		t.Fatalf("%s mismatch\nwant:\n%s\ngot:\n%s", name, raw, got)
+	}
+}
+
+// TestWriteFilesPreservesCustomTF verifies managed writes do not alter custom
+// Terraform files.
+func TestWriteFilesPreservesCustomTF(t *testing.T) {
+	dir := t.TempDir()
+	customPath := filepath.Join(dir, "custom.tf")
+	if err := os.WriteFile(customPath, []byte("custom"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFiles(dir, []File{{Name: "podplane.cluster.tf", Content: "locals {}\n"}}); err != nil {
+		t.Fatalf("WriteFiles returned error: %v", err)
+	}
+	custom, err := os.ReadFile(customPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(custom) != "custom" {
+		t.Fatalf("custom file changed: %q", custom)
+	}
+}

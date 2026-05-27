@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/podplane/podplane/internal/clusterconfig"
 	"github.com/podplane/podplane/internal/config"
@@ -17,6 +18,7 @@ import (
 	"github.com/podplane/podplane/internal/oidcserver"
 	"github.com/podplane/podplane/internal/tui"
 	"github.com/podplane/podplane/internal/vm"
+	"github.com/podplane/podplane/pkg/seeds"
 	"github.com/spf13/cobra"
 )
 
@@ -31,13 +33,15 @@ func init() {
 	localStartCmd.Flags().StringVarP(&localStartMemory, "memory", "m", "4G", "Memory to allocate to the VM (default 4G)")
 	localStartCmd.Flags().BoolVar(&localStartConsole, "console", false, "Attach to the VM serial console after startup")
 	localStartCmd.Flags().BoolVar(&localStartFollow, "follow", false, "Stream cloud-init user-data logs while waiting for startup")
+	localStartCmd.Flags().StringVar(&localStartComponents, "components", seeds.Recommended, "Initial platform components seeded on first boot: recommended, minimal, or none")
 }
 
 var (
-	localStartCPUs    string
-	localStartMemory  string
-	localStartConsole bool
-	localStartFollow  bool
+	localStartCPUs       string
+	localStartMemory     string
+	localStartConsole    bool
+	localStartFollow     bool
+	localStartComponents string
 )
 
 // newLocalStartCmd creates the `local start` command. After the VM is up it
@@ -50,17 +54,58 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 
 		// Create local cluster manager and start the VM
 		manager := local.NewManager(c, localClusterID)
-		stashPath, err := manager.Start(local.StartOptions{
+		running, err := manager.Running()
+		if err != nil {
+			return fmt.Errorf("check local VM status: %w", err)
+		}
+		if running {
+			fmt.Fprintln(os.Stdout, "VM is already running")
+			if localStartConsole {
+				if err := manager.Console(); err != nil {
+					return fmt.Errorf("attach console: %w", err)
+				}
+			}
+			return nil
+		}
+		vmExists, err := manager.Exists()
+		if err != nil {
+			return fmt.Errorf("check local VM exists: %w", err)
+		}
+		startOpts := local.StartOptions{
 			CPUs:               localStartCPUs,
 			Memory:             localStartMemory,
 			StreamUserdataLogs: localStartFollow,
+			Components:         localStartComponents,
 			RunDownloadProgress: func(run func(progress func(deps.DownloadEvent)) error) error {
 				return tui.RunDownloadProgress("Downloading Podplane dependencies", run)
 			},
-		})
+		}
+		var stashPath string
+		if !localStartFollow {
+			items := []tui.TaskProgressItem{
+				{Key: "server", Name: "Local server", Expected: 2 * time.Second, Timeout: 10 * time.Second},
+				{Key: "vm-image", Name: "VM image", Exclude: vmExists, Success: "created", Expected: time.Second, Timeout: 30 * time.Second},
+				{Key: "vm", Name: "VM", Success: "started", Expected: 2 * time.Second, Timeout: 30 * time.Second},
+				{Key: "cloud-init", Name: "cloud-init user-data", Exclude: vmExists, Success: "completed", Expected: 15 * time.Second, Timeout: 10 * time.Minute},
+				{Key: "system-services", Name: "systemd services", Success: "started", Expected: 7 * time.Second, Timeout: 2 * time.Minute},
+				{Key: "nstance-agent", Name: "nstance", Success: "registered", Expected: 2 * time.Second, Timeout: 2 * time.Minute},
+				{Key: "netsy", Name: "netsy", Success: "healthy", Expected: 12 * time.Second, Timeout: 2 * time.Minute},
+				{Key: "api-live", Name: "kubernetes live", Success: "live", Expected: 6 * time.Second, Timeout: 2 * time.Minute},
+				{Key: "api-ready", Name: "kubernetes ready", Success: "ready", Expected: 2 * time.Second, Timeout: 2 * time.Minute},
+			}
+			err = tui.RunTaskProgress("Podplane local start", items, func(progress tui.TaskProgress) error {
+				startOpts.Progress = progress
+				var startErr error
+				stashPath, startErr = manager.Start(startOpts)
+				return startErr
+			})
+		} else {
+			stashPath, err = manager.Start(startOpts)
+		}
 		if err != nil {
 			if errors.Is(err, vm.ErrAlreadyRunning) {
-				return fmt.Errorf("VM is already running — use `podplane local stop` first, or `podplane local status` to check")
+				fmt.Fprintln(os.Stdout, "VM is already running")
+				return nil
 			}
 			return fmt.Errorf("failed to start: %w", err)
 		}
@@ -72,11 +117,36 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 			return fmt.Errorf("load local cluster config: %w", err)
 		}
 		// Local OIDC always issues tokens with sub == oidcserver.LocalSub, so we
-		// can configure kubectl now without first performing a login.
+		// can configure kubectl now without first performing a login. We also
+		// refresh the cached token too, as local server ports can change across
+		// restarts, making an old-but-unexpired token's issuer stale.
+		key, err := oidcserver.LoadOrCreateKeypair(manager.OIDCKeyPath())
+		if err != nil {
+			return fmt.Errorf("load local OIDC keypair: %w", err)
+		}
+		idToken, err := oidcserver.IssueLocalToken(key, cluster.Cluster.OIDC.IssuerURL, cluster.Cluster.ID)
+		if err != nil {
+			return fmt.Errorf("issue local kubectl token: %w", err)
+		}
+		localAuthConfig, restoreKeyringPass, err := config.InitWithLocalKeyring()
+		if err != nil {
+			return err
+		}
+		defer restoreKeyringPass()
+		if err := localAuthConfig.AuthSet(config.AuthMetadata{
+			Sub:         oidcserver.LocalSub,
+			ClusterID:   cluster.Cluster.ID,
+			ClusterName: cluster.Cluster.Name,
+			Issuer:      cluster.Cluster.OIDC.IssuerURL,
+			ClientID:    cluster.ResolvedClientID(),
+			UserEmail:   "test@localhost",
+		}, config.AuthSecrets{IDToken: idToken}); err != nil {
+			return fmt.Errorf("cache local kubectl token: %w", err)
+		}
 		if err := kubectl.ConfigureClusterAccess(os.Stdout, cluster.Cluster.ID, cluster.ResolvedKubernetesAPIURL(), oidcserver.LocalSub, "", true); err != nil {
 			return fmt.Errorf("configure kubectl: %w", err)
 		}
-		fmt.Printf("✅ kubectl configured for local cluster using %q context\n", kubectl.ContextKey(cluster.Cluster.ID, true))
+		fmt.Printf("✓ kubectl configured for local cluster using %q context\n", kubectl.ContextKey(cluster.Cluster.ID, true))
 		if ingressURL, err := manager.LocalIngressURL(); err == nil {
 			fmt.Printf("Local ingress proxy: %s\n", ingressURL)
 		}

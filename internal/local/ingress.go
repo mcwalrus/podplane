@@ -7,6 +7,7 @@ package local
 import (
 	"crypto/tls"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
@@ -17,12 +18,31 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 const (
 	localIngressHTTPSPort      = 4433
 	localTraefikHTTPSHostname  = "127.0.0.1"
 	localKubernetesAPIHostname = "127.0.0.1"
+)
+
+// Options for the local ingress proxy upstream transport. These are
+// intentionally generous: this proxy runs on the developer's machine and only
+// talks to local QEMU hostfwd ports for the local cluster VMs, so connection
+// pool growth is bounded by the number of local clusters and there is no
+// remote network cost to keeping connections warm.
+const (
+	proxyMaxIdleConns          = 256
+	proxyMaxIdleConnsPerHost   = 128
+	proxyMaxConnsPerHost       = 0 // unbounded; HTTP/2 multiplexes
+	proxyIdleConnTimeout       = 90 * time.Second
+	proxyTLSHandshakeTimeout   = 10 * time.Second
+	proxyExpectContinueTimeout = 1 * time.Second
+	proxyDialTimeout           = 5 * time.Second
+	proxyKeepAlive             = 30 * time.Second
+	proxyResponseHeaderTimeout = 0 // unbounded: kube-apiserver "watch" requests are long-lived
 )
 
 type localIngressTargetKind string
@@ -92,12 +112,75 @@ func localIngressClusterID(host string) (string, error) {
 	return target.clusterID, nil
 }
 
+// cachedProxy holds a *httputil.ReverseProxy along with the upstream target
+// (host:port string) it was built for. If the upstream target changes (e.g.,
+// the cluster VM was stopped and restarted with a different host port), the
+// entry is rebuilt and the old one is discarded; the discarded entry's idle
+// connections close naturally on IdleConnTimeout.
+type cachedProxy struct {
+	target string
+	proxy  *httputil.ReverseProxy
+}
+
 // localIngressProxy builds the local TLS ingress reverse proxy to either the
 // VM's raw Traefik HTTPS endpoint or the reserved Kubernetes API endpoint.
+//
+// The returned handler maintains a process-lifetime cache of one warm
+// *httputil.ReverseProxy per (clusterID, ingress kind) so that:
+//   - bursts of concurrent requests to the same backend share a connection
+//     pool instead of repeatedly paying TLS handshake + slow-start costs;
+//   - HTTP/2 is negotiated to the backend, multiplexing burst requests over a
+//     small number of TCP connections (critical for QEMU SLiRP usermode
+//     networking, which struggles with parallel connection storms);
+//   - long-lived streaming endpoints (kube-apiserver watches, log streaming,
+//     `kubectl exec`/`kubectl port-forward` upgrades) are flushed
+//     frame-by-frame rather than buffered.
 func localIngressProxy(runtimeDir string) http.Handler {
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	var (
+		mu    sync.RWMutex
+		cache = map[localIngressTarget]*cachedProxy{}
+	)
+
+	// resolve returns the cached *cachedProxy for the given ingress target
+	// and upstream host:port, building (or rebuilding, if the target host
+	// has changed since the entry was created) the underlying
+	// *httputil.ReverseProxy on first use. Concurrent callers requesting
+	// the same key race on a sync.RWMutex; the double-checked pattern under
+	// the write lock keeps that race correct.
+	resolve := func(key localIngressTarget, target string, targetName string) *cachedProxy {
+		mu.RLock()
+		entry, ok := cache[key]
+		mu.RUnlock()
+		if ok && entry.target == target {
+			return entry
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if entry, ok := cache[key]; ok && entry.target == target {
+			return entry
+		}
+		u := &url.URL{Scheme: "https", Host: target}
+		proxy := httputil.NewSingleHostReverseProxy(u)
+		proxy.Transport = newUpstreamTransport()
+		// Flush each upstream write immediately so streaming endpoints
+		// (kube-apiserver watches, `kubectl logs -f`) don't get buffered
+		// inside the proxy.
+		proxy.FlushInterval = -1
+		proxy.ErrorHandler = func(rw http.ResponseWriter, r *http.Request, err error) {
+			// Traefik gets a friendly text 502 so a developer hitting an
+			// app URL before Traefik is installed sees an actionable
+			// message rather than a Kubernetes-shaped error body.
+			if key.kind == localIngressTargetTraefik {
+				http.Error(rw, fmt.Sprintf("local ingress proxy to %s is unavailable: %v; ensure Traefik is installed and running in the local cluster", targetName, err), http.StatusBadGateway)
+				return
+			}
+			writeKubernetesAPIProxyError(rw, r, err)
+		}
+		entry = &cachedProxy{target: target, proxy: proxy}
+		cache[key] = entry
+		return entry
 	}
+
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		ingressTarget, err := localIngressTargetForHost(r.Host)
 		if err != nil && r.TLS != nil && r.TLS.ServerName != "" {
@@ -124,21 +207,70 @@ func localIngressProxy(runtimeDir string) http.Handler {
 			http.Error(rw, fmt.Sprintf("local ingress proxy failed to resolve %s port: state is missing port", targetName), http.StatusBadGateway)
 			return
 		}
-		target := &url.URL{
-			Scheme: "https",
-			Host:   net.JoinHostPort(targetHost, strconv.Itoa(port)),
-		}
-		proxy := httputil.NewSingleHostReverseProxy(target)
-		proxy.Transport = transport
-		proxy.ErrorHandler = func(rw http.ResponseWriter, r *http.Request, err error) {
-			message := fmt.Sprintf("local ingress proxy to %s is unavailable: %v", targetName, err)
-			if ingressTarget.kind == localIngressTargetTraefik {
-				message += "; ensure Traefik is installed and running in the local cluster"
-			}
-			http.Error(rw, message, http.StatusBadGateway)
-		}
-		proxy.ServeHTTP(rw, r)
+		resolve(ingressTarget, net.JoinHostPort(targetHost, strconv.Itoa(port)), targetName).proxy.ServeHTTP(rw, r)
 	})
+}
+
+// newUpstreamTransport returns an *http.Transport tuned for proxying many
+// concurrent requests to the local cluster VM Kubernetes API or Traefik.
+//
+// HTTP/2 is explicitly enabled via ForceAttemptHTTP2 because Go's net/http
+// package conservatively disables auto-upgrade to HTTP/2 whenever a custom
+// TLSClientConfig is supplied. Negotiating HTTP/2 to the upstream is the key
+// robustness lever for this proxy: it lets bursts of requests (e.g., helm's
+// parallel CRD applies during a cold cluster install) multiplex over one
+// connection instead of triggering a TLS-handshake / connection storm.
+func newUpstreamTransport() *http.Transport {
+	return &http.Transport{
+		Proxy: nil,
+		DialContext: (&net.Dialer{
+			Timeout:   proxyDialTimeout,
+			KeepAlive: proxyKeepAlive,
+		}).DialContext,
+		TLSClientConfig: &tls.Config{
+			//nolint:gosec // upstream is loopback QEMU hostfwd to VM TLS endpoints:
+			// kube-apiserver uses fake Nstance CA; Traefik may use in-cluster/self-signed local certs.
+			InsecureSkipVerify: true,
+			NextProtos:         []string{"h2", "http/1.1"},
+		},
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          proxyMaxIdleConns,
+		MaxIdleConnsPerHost:   proxyMaxIdleConnsPerHost,
+		MaxConnsPerHost:       proxyMaxConnsPerHost,
+		IdleConnTimeout:       proxyIdleConnTimeout,
+		TLSHandshakeTimeout:   proxyTLSHandshakeTimeout,
+		ExpectContinueTimeout: proxyExpectContinueTimeout,
+		ResponseHeaderTimeout: proxyResponseHeaderTimeout,
+		DisableCompression:    false,
+	}
+}
+
+// writeKubernetesAPIProxyError writes a Kubernetes API Status object body
+// describing a failed upstream proxy request. client-go consumers (kubectl,
+// helm, controllers) parse this as a metav1.Status and surface a clean
+// "ServiceUnavailable" error instead of an opaque text gateway message.
+func writeKubernetesAPIProxyError(rw http.ResponseWriter, r *http.Request, err error) {
+	status := struct {
+		Kind       string         `json:"kind"`
+		APIVersion string         `json:"apiVersion"`
+		Metadata   map[string]any `json:"metadata"`
+		Status     string         `json:"status"`
+		Message    string         `json:"message"`
+		Reason     string         `json:"reason"`
+		Code       int            `json:"code"`
+	}{
+		Kind:       "Status",
+		APIVersion: "v1",
+		Metadata:   map[string]any{},
+		Status:     "Failure",
+		Message:    fmt.Sprintf("podplane local ingress proxy could not reach the local cluster VM Kubernetes API (%s %s): %v", r.Method, r.URL.Path, err),
+		Reason:     "ServiceUnavailable",
+		Code:       http.StatusServiceUnavailable,
+	}
+	rw.Header().Set("Content-Type", "application/json")
+	rw.Header().Set("X-Content-Type-Options", "nosniff")
+	rw.WriteHeader(http.StatusServiceUnavailable)
+	_ = json.NewEncoder(rw).Encode(&status)
 }
 
 //go:embed ingress.html

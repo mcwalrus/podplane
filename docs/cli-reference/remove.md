@@ -11,7 +11,7 @@ Removes a previously deployed app from the cluster.
 This is a convenience command which wraps `helm` commands.
 
 ```
-podplane remove <template> --name <name> [flags]
+podplane remove --name <name> [flags]
 ```
 
 ## Options
@@ -19,5 +19,6 @@ podplane remove <template> --name <name> [flags]
 | Flag | Description |
 | --- | --- |
 | `--name string` | Name of the app deployment to remove (required) |
+| `-n, --namespace string` | Kubernetes namespace the app was deployed into |
 | `--context string` | The name of the kubeconfig context to use |
 | `--kubeconfig string` | Path to the kubeconfig file (default: `$KUBECONFIG` or `~/.kube/config`) |

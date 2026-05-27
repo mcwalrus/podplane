@@ -1,0 +1,234 @@
+// Podplane <https://podplane.dev>
+// Copyright 2026 Nadrama Pty Ltd
+// SPDX-License-Identifier: Apache-2.0
+
+package clustercreate
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/podplane/podplane/internal/clusterconfig"
+	"github.com/podplane/podplane/internal/tui"
+)
+
+type configField struct {
+	label    string
+	value    string
+	validate func(string) error
+	advanced bool
+}
+
+type configForm struct {
+	fields         []configField
+	index          int
+	input          textinput.Model
+	err            error
+	showNetworking bool
+	cancel         bool
+	complete       bool
+}
+
+// RunConfigWizard runs an interactive form and returns a cluster configuration.
+func RunConfigWizard(oidcIssuerURL string) (*clusterconfig.ClusterConfig, error) {
+	m := newConfigForm(oidcIssuerURL)
+	got, err := tea.NewProgram(m).Run()
+	if err != nil {
+		return nil, fmt.Errorf("run cluster config form: %w", err)
+	}
+	form, ok := got.(configForm)
+	if !ok {
+		return nil, fmt.Errorf("cluster config form returned unexpected model")
+	}
+	if form.cancel {
+		return nil, fmt.Errorf("cluster config creation cancelled")
+	}
+	if !form.complete {
+		return nil, fmt.Errorf("cluster config creation did not complete")
+	}
+	return form.config()
+}
+
+// newConfigForm creates the initial model for the cluster config form.
+func newConfigForm(oidcIssuerURL string) configForm {
+	draft := clusterconfig.NewDraftConfig("aws")
+	if oidcIssuerURL != "" {
+		draft.Cluster.OIDC.IssuerURL = oidcIssuerURL
+	}
+	provider := draft.Cluster.Providers[0]
+	zone := "us-east-1a"
+	for name := range provider.Zones {
+		zone = name
+		break
+	}
+	pool := draft.Cluster.Pools["control-plane"]
+	fields := []configField{
+		{label: "Cluster name", value: draft.Cluster.Name, validate: tui.Required("cluster name")},
+		{label: "Cluster ID / slug", value: draft.Cluster.ID, validate: validateClusterID},
+		{label: "OIDC issuer URL", value: draft.Cluster.OIDC.IssuerURL, validate: tui.Required("OIDC issuer URL")},
+		{label: "AWS region", value: provider.Region, validate: tui.Required("AWS region")},
+		{label: "AWS profile (optional)", value: provider.Profile},
+		{label: "Configure networking options?", value: "no", validate: validateYesNo},
+		{label: "VPC IPv4 CIDR", value: provider.VPC.V4CIDR, validate: tui.Required("VPC IPv4 CIDR"), advanced: true},
+		{label: "AWS availability zone", value: zone, validate: tui.Required("AWS availability zone"), advanced: true},
+		{label: "Control-plane architecture", value: pool.Arch, validate: validateArch},
+		{label: "Control-plane instance type", value: pool.InstanceType, validate: tui.Required("instance type")},
+		{label: "Control-plane size", value: strconv.Itoa(pool.Size), validate: validatePositiveInt},
+	}
+	input := textinput.New()
+	input.Focus()
+	input.CharLimit = 256
+	input.SetValue(fields[0].value)
+	input.CursorEnd()
+	return configForm{fields: fields, input: input}
+}
+
+// Init starts cursor blinking for the cluster config form.
+func (m configForm) Init() tea.Cmd {
+	return textinput.Blink
+}
+
+// Update handles text entry, cancellation, and field submission for the
+// cluster config form.
+func (m configForm) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc":
+			m.cancel = true
+			return m, tea.Quit
+		case "enter":
+			return m.submit()
+		}
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
+// View renders the active cluster config form field.
+func (m configForm) View() string {
+	if m.cancel || m.complete {
+		return "\n"
+	}
+	title := lipgloss.NewStyle().Foreground(tui.ColorWhite).Background(tui.ColorPrimary).Padding(0, 1).Render("New cluster config")
+	progress := fmt.Sprintf("%d/%d", m.index+1, len(m.fields))
+	label := lipgloss.NewStyle().Bold(true).Render(m.fields[m.index].label)
+	var errText string
+	if m.err != nil {
+		errText = "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#d20f39")).Render(m.err.Error())
+	}
+	return fmt.Sprintf("\n%s %s\n\n%s\n%s%s\n\nenter: next  esc: cancel\n", title, progress, label, m.input.View(), errText)
+}
+
+// submit validates and stores the active field, advancing to the next field or
+// completing the form.
+func (m configForm) submit() (tea.Model, tea.Cmd) {
+	value := strings.TrimSpace(m.input.Value())
+	field := m.fields[m.index]
+	if field.validate != nil {
+		if err := field.validate(value); err != nil {
+			m.err = err
+			return m, nil
+		}
+	}
+	m.fields[m.index].value = value
+	if field.label == "Configure networking options?" {
+		m.showNetworking = strings.EqualFold(value, "yes") || strings.EqualFold(value, "y")
+	}
+	m.err = nil
+	m.index = m.nextIndex(m.index + 1)
+	if m.index >= len(m.fields) {
+		m.complete = true
+		return m, tea.Quit
+	}
+	m.input.SetValue(m.fields[m.index].value)
+	m.input.CursorEnd()
+	return m, nil
+}
+
+// nextIndex returns the next visible field index, skipping advanced networking
+// fields unless the user requested them.
+func (m configForm) nextIndex(index int) int {
+	for index < len(m.fields) && m.fields[index].advanced && !m.showNetworking {
+		index++
+	}
+	return index
+}
+
+// config converts completed form answers into a cluster configuration.
+func (m configForm) config() (*clusterconfig.ClusterConfig, error) {
+	values := map[string]string{}
+	for _, field := range m.fields {
+		values[field.label] = field.value
+	}
+	size, err := strconv.Atoi(values["Control-plane size"])
+	if err != nil {
+		return nil, fmt.Errorf("parse control-plane size: %w", err)
+	}
+	cfg := clusterconfig.NewDraftConfig("aws")
+	cfg.Cluster.Name = values["Cluster name"]
+	cfg.Cluster.ID = values["Cluster ID / slug"]
+	cfg.Cluster.OIDC.IssuerURL = values["OIDC issuer URL"]
+	cfg.Cluster.Pools["control-plane"] = clusterconfig.Pool{
+		Arch:         values["Control-plane architecture"],
+		InstanceType: values["Control-plane instance type"],
+		Size:         size,
+	}
+	provider := cfg.Cluster.Providers[0]
+	provider.Region = values["AWS region"]
+	provider.Profile = values["AWS profile (optional)"]
+	provider.VPC.V4CIDR = values["VPC IPv4 CIDR"]
+	zone := values["AWS availability zone"]
+	if !m.showNetworking {
+		zone = provider.Region + "a"
+	}
+	provider.Zones = map[string][]clusterconfig.Subnet{
+		zone: provider.Zones["us-east-1a"],
+	}
+	cfg.Cluster.Providers[0] = provider
+	return cfg, nil
+}
+
+// validateClusterID validates cluster IDs using the clusterconfig package.
+func validateClusterID(value string) error {
+	if err := clusterconfig.ValidateClusterID(value); err != nil {
+		return fmt.Errorf("cluster ID %w", err)
+	}
+	return nil
+}
+
+// validateArch validates the supported control-plane CPU architectures.
+func validateArch(value string) error {
+	if value != "amd64" && value != "arm64" {
+		return fmt.Errorf("architecture must be amd64 or arm64")
+	}
+	return nil
+}
+
+// validateYesNo validates a yes/no form response.
+func validateYesNo(value string) error {
+	switch strings.ToLower(value) {
+	case "yes", "y", "no", "n":
+		return nil
+	default:
+		return fmt.Errorf("must be yes or no")
+	}
+}
+
+// validatePositiveInt validates positive integer form values.
+func validatePositiveInt(value string) error {
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return fmt.Errorf("must be a number")
+	}
+	if n < 1 {
+		return fmt.Errorf("must be at least 1")
+	}
+	return nil
+}

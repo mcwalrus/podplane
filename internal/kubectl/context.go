@@ -73,3 +73,60 @@ func SetContext(stdout io.Writer, sub string, clusterID string, local bool) erro
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
+
+// ClusterIDFromContext returns a Podplane cluster ID from a kubeconfig
+// context. If kubeContext is empty, the current context is used.
+func ClusterIDFromContext(kubeContext, kubeconfig string) (string, error) {
+	args := []string{"config", "view", "--raw", "--output=json"}
+	if kubeconfig != "" {
+		args = append(args, "--kubeconfig", kubeconfig)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := execwrap.Command("kubectl", args...)
+	cmd.Stdout = &out
+	cmd.Stderr = &errOut
+	if err := cmd.Run(); err != nil {
+		stderr := strings.TrimSpace(errOut.String())
+		if stderr != "" {
+			return "", fmt.Errorf("read kubeconfig: %w: %s", err, stderr)
+		}
+		return "", fmt.Errorf("read kubeconfig: %w", err)
+	}
+
+	var cfg struct {
+		CurrentContext string `json:"current-context"`
+		Contexts       []struct {
+			Name    string `json:"name"`
+			Context struct {
+				Cluster string `json:"cluster"`
+			} `json:"context"`
+		} `json:"contexts"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &cfg); err != nil {
+		return "", fmt.Errorf("parse kubeconfig: %w", err)
+	}
+
+	name := strings.TrimSpace(kubeContext)
+	if name == "" {
+		name = strings.TrimSpace(cfg.CurrentContext)
+	}
+	if name == "" {
+		return "", fmt.Errorf("no kubeconfig context selected; pass --context, --cluster, or -f/--cluster-config")
+	}
+
+	for _, context := range cfg.Contexts {
+		if context.Name != name {
+			continue
+		}
+		if strings.HasPrefix(context.Context.Cluster, "podplane-local-") {
+			return "", fmt.Errorf("context %q is a local Podplane cluster; use `podplane local stop` or `podplane local delete`", name)
+		}
+		if clusterID := strings.TrimPrefix(context.Context.Cluster, "podplane-"); clusterID != context.Context.Cluster {
+			return clusterID, nil
+		}
+		return name, nil
+	}
+	return "", fmt.Errorf("kubeconfig context %q not found", name)
+}

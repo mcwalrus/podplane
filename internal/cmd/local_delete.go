@@ -23,7 +23,7 @@ var localDeleteCmd = &cobra.Command{
 func newLocalDeleteCmd(c *config.Config) *cobra.Command {
 	localDeleteCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		manager := local.NewManager(c, localClusterID)
-		if err := clusterauth.Logout(c, os.Stdout, localClusterID, true); err != nil {
+		if err := clusterauth.LogoutLocal(os.Stdout, localClusterID); err != nil {
 			return fmt.Errorf("failed to clear local cluster credentials: %w", err)
 		}
 		if err := manager.Delete(); err != nil {

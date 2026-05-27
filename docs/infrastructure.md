@@ -31,7 +31,7 @@ The flow for AWS or Google Cloud is:
     1. generates a `podplane.cluster.jsonc` config file.
     2. generates OpenTofu/Terraform `.tf` files.
     3. optionally, can deploy the infrastructure as well.
-2. A Podplane provider for OpenTofu/Terraform (one binary for AWS, one for Google Cloud) invokes [`podplane hooks netsy-init`](cli-reference/hooks-netsy-init.md) to generate a Netsy snapshot file, then uploads it to object storage (S3 for AWS, GCS for Google Cloud) using a conditional put to ensure it never overwrites existing cluster state.
+2. The Podplane OpenTofu/Terraform provider creates a Netsy `bootstrap.netsy` snapshot file from a Podplane seed file using Podplane's `netsyseed` package, then uploads it to object storage (S3 for AWS, GCS for Google Cloud) using a conditional put to ensure it never overwrites existing cluster state.
 3. Nstance auto-scales cluster VMs using the Podplane userdata script.
 
 ## Design Philosophy

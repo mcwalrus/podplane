@@ -150,6 +150,13 @@ func (l *Local) OIDCCACertPath() string {
 	return filepath.Join(l.dataDir, "local-server", "tls", "oidc", "ca.pem")
 }
 
+// OIDCKeyPath returns the local server's OIDC signing key path. The key is
+// shared between the running local server and any in-process callers that
+// need to mint tokens (e.g. the apiserver readiness probe).
+func (l *Local) OIDCKeyPath() string {
+	return filepath.Join(l.dataDir, "local-server", "oidc-key.pem")
+}
+
 // S3ServerURL returns the URL to the local server fake S3 endpoint for a
 // given host-from-guest address.
 func (l *Local) s3ServerURL(hostAddr, kind string) (string, error) {
@@ -171,4 +178,27 @@ func (l *Local) S3DataServerURL(hostAddr string) (string, error) {
 // S3CacheServerURL returns the local fake S3 endpoint for cache-backed buckets.
 func (l *Local) S3CacheServerURL(hostAddr string) (string, error) {
 	return l.s3ServerURL(hostAddr, "cache")
+}
+
+// localNetsyBucketName returns the fake S3 bucket name used for a local
+// cluster's Netsy datastore.
+func localNetsyBucketName(clusterID string) string {
+	return fmt.Sprintf("%s-netsy", clusterID)
+}
+
+// localTelemetryBucketName returns the fake S3 bucket name used for a local
+// cluster's telemetry data.
+func localTelemetryBucketName(clusterID string) string {
+	return fmt.Sprintf("%s-telemetry", clusterID)
+}
+
+// localS3BucketDir returns the on-disk data directory for a fake S3 bucket.
+func localS3BucketDir(dataDir, bucket string) string {
+	return filepath.Join(dataDir, "s3", "buckets", bucket)
+}
+
+// localS3MetadataDir returns the on-disk metadata directory for a fake S3
+// bucket.
+func localS3MetadataDir(dataDir, bucket string) string {
+	return filepath.Join(dataDir, "s3", "metadata", bucket)
 }

@@ -23,7 +23,6 @@ func newHooksCmd(c *config.Config) *cobra.Command {
 	}
 
 	hooksCmd.AddCommand(newHooksKubectlAuthCmd(c))
-	hooksCmd.AddCommand(newHooksNetsyInitCmd(c))
 
 	return hooksCmd
 }

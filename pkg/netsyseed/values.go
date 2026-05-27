@@ -2,7 +2,7 @@
 // Copyright 2026 Nadrama Pty Ltd
 // SPDX-License-Identifier: Apache-2.0
 
-package netsyinit
+package netsyseed
 
 import (
 	"fmt"
@@ -17,9 +17,9 @@ const (
 	localIssuerName = "platform-selfsigned-clusterissuer"
 )
 
-// BuildPlatformComponentsValues derives platform-components Helm values from
+// buildPlatformComponentsValues derives platform-components Helm values from
 // user-facing cluster config. The returned structure is JSON/YAML marshalable.
-func BuildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig) (map[string]any, error) {
+func buildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig) (map[string]any, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("cluster config is required")
 	}
@@ -31,7 +31,6 @@ func BuildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig) (map[string
 	components := values["platform"].(map[string]any)["components"].(map[string]any)
 	applyProviderComponents(components, cfg.Cluster.Providers)
 	if len(cfg.Cluster.Domains) == 0 {
-		applyAddonComponents(components, cfg.Cluster.Components.Addons)
 		return values, nil
 	}
 
@@ -62,7 +61,7 @@ func BuildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig) (map[string
 		"platform-certs": map[string]any{"enabled": true},
 		"traefik":        map[string]any{"enabled": true},
 	}
-	components["valuesObject"] = map[string]any{
+	components["values"] = map[string]any{
 		"platform-certs": platformCerts,
 		"traefik": map[string]any{
 			"platform": map[string]any{
@@ -82,7 +81,6 @@ func BuildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig) (map[string
 	if secretSync := secretSyncValues(cfg.Cluster.Domains); secretSync != nil {
 		platformCerts["platform"].(map[string]any)["certs"].(map[string]any)["secretSync"] = secretSync
 	}
-	applyAddonComponents(components, cfg.Cluster.Components.Addons)
 	return values, nil
 }
 
@@ -94,29 +92,6 @@ func applyProviderComponents(components map[string]any, providers []clusterconfi
 		switch provider.Kind {
 		case "aws":
 			apps["csi-aws-ebs"] = map[string]any{"enabled": true}
-		}
-	}
-}
-
-// applyAddonComponents enables user-selected addon app charts and their known
-// companion CRD charts in platform-components values.
-func applyAddonComponents(components map[string]any, addons []string) {
-	apps := ensureChildMap(components, "apps")
-	crds := ensureChildMap(components, "crds")
-	for _, addon := range addons {
-		if addon == "" {
-			continue
-		}
-		apps[addon] = map[string]any{"enabled": true}
-		switch addon {
-		case "cert-manager":
-			crds["cert-manager-crds"] = map[string]any{"enabled": true}
-		case "trust-manager":
-			crds["trust-manager-crds"] = map[string]any{"enabled": true}
-		case "traefik":
-			crds["traefik-crds"] = map[string]any{"enabled": true}
-		case "snapshot":
-			crds["snapshot-crds"] = map[string]any{"enabled": true}
 		}
 	}
 }
@@ -322,6 +297,7 @@ func secretSyncValues(domains []clusterconfig.Domain) map[string]any {
 	return map[string]any{"enabled": true, "mounts": mounts}
 }
 
+// secretSyncMountName converts a SecretProviderClass name into a safe mount name.
 func secretSyncMountName(value string) string {
 	value = strings.ToLower(value)
 	var b strings.Builder

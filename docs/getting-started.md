@@ -51,7 +51,7 @@ This will:
 2. Generate the relevant infrastructure-as-code artifacts
 3. For AWS/Google Cloud:
     1. Confirm if you want to immediately deploy
-    2. Deploy using OpenTofu (or Terraform) `apply` command
+    2. Deploy using the OpenTofu/Terraform `apply` command
 
 ## Step 3: Login
 
@@ -72,10 +72,10 @@ kubectl get nodes --context cluster-name
 You can use the Podplane CLI to deploy your apps:
 
 ```bash
-podplane deploy web --name test --image caddy
+podplane deploy web --name hello --image ghcr.io/podplane/hello:latest
 ```
 
-This will print a URL you can use to view the [Caddy server](https://caddyserver.com/) "Your web server is working" default page.
+This will print a URL you can use to view the hello app.
 
 Note: The `deploy` template may require specific addon components to be installed in the cluster. If they aren't installed, the CLI will prompt you to install them e.g. web apps require Traefik ingress controller.
 

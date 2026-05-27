@@ -12,14 +12,47 @@ import (
 	"github.com/99designs/keyring"
 )
 
+const (
+	// KeyringPassEnv is the environment variable used to force and unlock the
+	// file-based keyring backend.
+	KeyringPassEnv = "PODPLANE_KEYRING_PASS"
+
+	// LocalKeyringPass is the fixed file-keyring password used by local kubectl
+	// exec auth so kubectl can read local dev credentials non-interactively.
+	LocalKeyringPass = "podplane-local"
+)
+
 // keyringPasswordFunc is a custom password function for file-based keyring
-// that uses the PODPLANE_KEYRING_PASS environment variable
+// that uses the PODPLANE_KEYRING_PASS environment variable.
 func keyringPasswordFunc(prompt string) (string, error) {
-	password := os.Getenv("PODPLANE_KEYRING_PASS")
+	password := os.Getenv(KeyringPassEnv)
 	if password == "" {
-		return "", fmt.Errorf("PODPLANE_KEYRING_PASS environment variable must be set for file-based keyring")
+		return "", fmt.Errorf("%s environment variable must be set for file-based keyring", KeyringPassEnv)
 	}
 	return password, nil
+}
+
+// InitWithLocalKeyring initializes a Config that uses the same file-based
+// keyring backend as local kubectl exec auth. The returned restore function
+// resets the process environment to its previous state.
+func InitWithLocalKeyring() (*Config, func(), error) {
+	previous, hadPrevious := os.LookupEnv(KeyringPassEnv)
+	if err := os.Setenv(KeyringPassEnv, LocalKeyringPass); err != nil {
+		return nil, func() {}, fmt.Errorf("set local keyring password: %w", err)
+	}
+	restore := func() {
+		if hadPrevious {
+			_ = os.Setenv(KeyringPassEnv, previous)
+			return
+		}
+		_ = os.Unsetenv(KeyringPassEnv)
+	}
+	c, err := Init()
+	if err != nil {
+		restore()
+		return nil, func() {}, err
+	}
+	return c, restore, nil
 }
 
 func (c *Config) initKeyring() error {
@@ -41,7 +74,7 @@ func (c *Config) initKeyring() error {
 
 	// If PODPLANE_KEYRING_PASS is set, force file-based backend
 	// This allows users to bypass OS keychain on any platform
-	if os.Getenv("PODPLANE_KEYRING_PASS") != "" {
+	if os.Getenv(KeyringPassEnv) != "" {
 		keyringConfig.AllowedBackends = []keyring.BackendType{keyring.FileBackend}
 	}
 

@@ -25,7 +25,7 @@ func TestCacheDomainPaths(t *testing.T) {
 	if got, want := manager.VMConfigArtifactsCacheDir(), filepath.Join("/cache/deps", "vmconfig", "artifacts"); got != want {
 		t.Fatalf("VMConfigArtifactsCacheDir() = %q, want %q", got, want)
 	}
-	if got, want := manager.VMConfigManifestCachePath(DefaultKind, "arm64"), filepath.Join("/cache/deps", "vmconfig", "manifests", "knc.debian-13.arm64.json"); got != want {
+	if got, want := manager.VMConfigManifestCachePath(DefaultKind, "arm64"), filepath.Join("/cache/deps", "vmconfig", "manifests", "vmconfig_knc_debian-13_arm64.json"); got != want {
 		t.Fatalf("VMConfigManifestCachePath() = %q, want %q", got, want)
 	}
 	if got, want := manager.VMConfigArtifactCachePath("runc", dep), filepath.Join("/cache/deps", "vmconfig", "artifacts", "runc", "1.2.3", "runc.arm64"); got != want {
@@ -43,11 +43,37 @@ func TestCacheDomainPaths(t *testing.T) {
 	if got, want := manager.ComponentsManifestCachePath(), filepath.Join("/cache/deps", "components", "manifests", "components.json"); got != want {
 		t.Fatalf("ComponentsManifestCachePath() = %q, want %q", got, want)
 	}
+	if got, want := manager.TemplatesCacheDir(), filepath.Join("/cache/deps", "templates"); got != want {
+		t.Fatalf("TemplatesCacheDir() = %q, want %q", got, want)
+	}
+	if got, want := manager.TemplatesManifestCacheDir(), filepath.Join("/cache/deps", "templates", "manifests"); got != want {
+		t.Fatalf("TemplatesManifestCacheDir() = %q, want %q", got, want)
+	}
+	if got, want := manager.TemplatesChartsCacheDir(), filepath.Join("/cache/deps", "templates", "charts"); got != want {
+		t.Fatalf("TemplatesChartsCacheDir() = %q, want %q", got, want)
+	}
+	if got, want := manager.TemplatesManifestCachePath(), filepath.Join("/cache/deps", "templates", "manifests", "templates.json"); got != want {
+		t.Fatalf("TemplatesManifestCachePath() = %q, want %q", got, want)
+	}
+	if got, want := manager.SeedsCacheDir(), filepath.Join("/cache/deps", "seeds"); got != want {
+		t.Fatalf("SeedsCacheDir() = %q, want %q", got, want)
+	}
+	if got, want := manager.SeedsManifestCacheDir(), filepath.Join("/cache/deps", "seeds", "manifests"); got != want {
+		t.Fatalf("SeedsManifestCacheDir() = %q, want %q", got, want)
+	}
+	if got, want := manager.SeedsSnapshotsCacheDir(), filepath.Join("/cache/deps", "seeds", "snapshots"); got != want {
+		t.Fatalf("SeedsSnapshotsCacheDir() = %q, want %q", got, want)
+	}
+	if got, want := manager.SeedsManifestCachePath(), filepath.Join("/cache/deps", "seeds", "manifests", "seeds.json"); got != want {
+		t.Fatalf("SeedsManifestCachePath() = %q, want %q", got, want)
+	}
+	if got, want := manager.SeedSnapshotCachePath("recommended", "1.2.3-1", "recommended.netsy"), filepath.Join("/cache/deps", "seeds", "snapshots", "recommended", "1.2.3-1", "recommended.netsy"); got != want {
+		t.Fatalf("SeedSnapshotCachePath() = %q, want %q", got, want)
+	}
 }
 
 func TestManifestFilename(t *testing.T) {
-	// The filename is part of the URL contract with the deps server, so a
-	// regression here would silently break manifest fetching.
+	// The filename is part of the local cache path contract.
 	tests := []struct {
 		name string
 		kind string
@@ -58,19 +84,19 @@ func TestManifestFilename(t *testing.T) {
 			name: "knc arm64",
 			kind: "knc",
 			arch: "arm64",
-			want: "knc.debian-13.arm64.json",
+			want: "vmconfig_knc_debian-13_arm64.json",
 		},
 		{
 			name: "knc amd64",
 			kind: "knc",
 			arch: "amd64",
-			want: "knc.debian-13.amd64.json",
+			want: "vmconfig_knc_debian-13_amd64.json",
 		},
 		{
 			name: "default kind constant",
 			kind: DefaultKind,
 			arch: "arm64",
-			want: "knc.debian-13.arm64.json",
+			want: "vmconfig_knc_debian-13_arm64.json",
 		},
 	}
 	for _, tt := range tests {

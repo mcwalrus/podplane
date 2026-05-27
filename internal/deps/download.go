@@ -61,10 +61,14 @@ type DownloadOptions struct {
 	Providers   []string
 	Addons      []string
 
-	// SkipComponentImages skips components manifest loading and image mirroring.
-	// It is used by callers that are downloading multiple VMConfig archs but only
-	// need to populate the shared component mirror once.
-	SkipComponentImages bool
+	// SkipCrossArchDependencies skips dependency cache population shared across
+	// VMConfig architectures, such as component images, template charts, and seed
+	// snapshots. It is used by callers downloading multiple archs after the first
+	// arch has already populated those shared caches.
+	SkipCrossArchDependencies bool
+
+	// SkipSeeds skips loading and caching seed manifests and snapshots.
+	SkipSeeds bool
 
 	// VMConfigManifestPath, when set, reads the vmconfig manifest from this
 	// local JSON file instead of fetching it from the configured deps base URL.
@@ -73,6 +77,14 @@ type DownloadOptions struct {
 	// ComponentsManifestPath, when set, reads the components manifest from this
 	// local JSON file instead of fetching it from the configured deps base URL.
 	ComponentsManifestPath string
+
+	// TemplatesManifestPath, when set, reads the templates manifest from this
+	// local JSON file instead of fetching it from the configured deps base URL.
+	TemplatesManifestPath string
+
+	// SeedsManifestPath, when set, reads the seeds manifest from this local JSON
+	// file instead of fetching it from the configured deps base URL.
+	SeedsManifestPath string
 }
 
 type pendingDownload struct {
@@ -124,7 +136,7 @@ func (m *Manager) Download(kind, arch string, opts DownloadOptions) error {
 	}
 
 	ctx := context.Background()
-	vmconfigManifestSource := fmt.Sprintf("%s/vmconfig/manifests/%s", m.baseURL, manifestFilename(kind, arch))
+	vmconfigManifestSource := fmt.Sprintf("%s/manifests/%s", m.baseURL, manifestFilename(kind, arch))
 	var manifest *Manifest
 	var err error
 	if opts.VMConfigManifestPath != "" {
@@ -162,7 +174,7 @@ func (m *Manager) Download(kind, arch string, opts DownloadOptions) error {
 	componentsManifest := &ComponentsManifest{}
 	componentsSource := ""
 	componentIndexes := []int{}
-	if !opts.SkipComponentImages {
+	if !opts.SkipCrossArchDependencies {
 		componentsManifest, componentsSource, err = m.loadComponentsManifest(ctx, client, opts, emit)
 		if err != nil {
 			return err
@@ -173,6 +185,24 @@ func (m *Manager) Download(kind, arch string, opts DownloadOptions) error {
 			return err
 		}
 		componentIndexes = componentsManifest.DownloadImageIndexes(ComponentImageFilter{Archs: componentArchs, Providers: opts.Providers, Addons: opts.Addons})
+	}
+	templatesManifest := &TemplatesManifest{}
+	templatesSource := ""
+	if !opts.SkipCrossArchDependencies {
+		templatesManifest, templatesSource, err = m.loadTemplatesManifest(ctx, client, opts, emit)
+		if err != nil {
+			return err
+		}
+		templatesManifest.ResetCached()
+	}
+	seedsManifest := &SeedsManifest{}
+	seedsSource := ""
+	if !opts.SkipCrossArchDependencies && !opts.SkipSeeds {
+		seedsManifest, seedsSource, err = m.loadSeedsManifest(ctx, client, opts, emit)
+		if err != nil {
+			return err
+		}
+		seedsManifest.ResetCached()
 	}
 	for _, index := range componentIndexes {
 		image := componentsManifest.Components.Images[index]
@@ -268,10 +298,20 @@ func (m *Manager) Download(kind, arch string, opts DownloadOptions) error {
 		if missing == 0 && componentMissing == 0 {
 			fmt.Fprintln(output, "All dependencies already cached, nothing to download.")
 		}
-		if !opts.SkipComponentImages {
+		if !opts.SkipCrossArchDependencies {
 			fmt.Fprintf(output, "Components manifest: %s\n", componentsSource)
 			fmt.Fprintf(output, "Component image cache directory: %s\n", m.ComponentsImagesCacheDir())
 			fmt.Fprintf(output, "Component images: %d\n", len(componentIndexes))
+		}
+		if !opts.SkipCrossArchDependencies {
+			fmt.Fprintf(output, "Templates manifest: %s\n", templatesSource)
+			fmt.Fprintf(output, "Template chart cache directory: %s\n", m.TemplatesChartsCacheDir())
+			fmt.Fprintf(output, "Template charts: %d\n", len(templatesManifest.Templates.Charts))
+		}
+		if !opts.SkipCrossArchDependencies && !opts.SkipSeeds {
+			fmt.Fprintf(output, "Seeds manifest: %s\n", seedsSource)
+			fmt.Fprintf(output, "Seed snapshot cache directory: %s\n", m.SeedsSnapshotsCacheDir())
+			fmt.Fprintf(output, "Seed snapshots: %d\n", len(seedsManifest.Seeds.Snapshots))
 		}
 		return nil
 	}
@@ -302,7 +342,7 @@ func (m *Manager) Download(kind, arch string, opts DownloadOptions) error {
 		return fmt.Errorf("failed to write cached manifest: %w", err)
 	}
 
-	if !opts.SkipComponentImages {
+	if !opts.SkipCrossArchDependencies {
 		filteredRaw, err := json.MarshalIndent(componentsManifest, "", "  ")
 		if err != nil {
 			return fmt.Errorf("failed to encode cached components manifest: %w", err)
@@ -310,6 +350,32 @@ func (m *Manager) Download(kind, arch string, opts DownloadOptions) error {
 		componentsRaw := append(filteredRaw, '\n')
 		if err := m.WriteCachedComponentsManifest(componentsRaw); err != nil {
 			return fmt.Errorf("failed to write cached components manifest: %w", err)
+		}
+	}
+	if !opts.SkipCrossArchDependencies {
+		if err := m.populateTemplatesCache(ctx, templatesManifest, opts.TemplatesManifestPath, emit); err != nil {
+			return fmt.Errorf("failed to cache template charts: %w", err)
+		}
+		filteredRaw, err = json.MarshalIndent(templatesManifest, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to encode cached templates manifest: %w", err)
+		}
+		templatesRaw := append(filteredRaw, '\n')
+		if err := m.WriteCachedTemplatesManifest(templatesRaw); err != nil {
+			return fmt.Errorf("failed to write cached templates manifest: %w", err)
+		}
+	}
+	if !opts.SkipCrossArchDependencies && !opts.SkipSeeds {
+		if err := m.populateSeedsCache(ctx, seedsManifest, opts.SeedsManifestPath, client, emit); err != nil {
+			return fmt.Errorf("failed to cache seed snapshots: %w", err)
+		}
+		filteredRaw, err = json.MarshalIndent(seedsManifest, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to encode cached seeds manifest: %w", err)
+		}
+		seedsRaw := append(filteredRaw, '\n')
+		if err := m.WriteCachedSeedsManifest(seedsRaw); err != nil {
+			return fmt.Errorf("failed to write cached seeds manifest: %w", err)
 		}
 	}
 	emit(DownloadEvent{Type: DownloadEventStatus, Message: fmt.Sprintf("All dependencies for %s_%s_%s are up to date.", kind, OS, arch)})
@@ -333,6 +399,44 @@ func (m *Manager) loadComponentsManifest(ctx context.Context, client *http.Clien
 		return nil, componentsSource, fmt.Errorf("failed to load components manifest: %w", err)
 	}
 	return componentsManifest, componentsSource, nil
+}
+
+// loadTemplatesManifest loads the templates manifest from either a local path or the configured deps base URL.
+func (m *Manager) loadTemplatesManifest(ctx context.Context, client *http.Client, opts DownloadOptions, emit func(DownloadEvent)) (*TemplatesManifest, string, error) {
+	templatesSource := fmt.Sprintf("%s/%s", m.baseURL, templatesManifestPath)
+	var templatesManifest *TemplatesManifest
+	var err error
+	if opts.TemplatesManifestPath != "" {
+		templatesSource = opts.TemplatesManifestPath
+		emit(DownloadEvent{Type: DownloadEventStatus, Message: fmt.Sprintf("Reading templates manifest from %s...", opts.TemplatesManifestPath)})
+		templatesManifest, err = readTemplatesManifestFile(opts.TemplatesManifestPath)
+	} else {
+		emit(DownloadEvent{Type: DownloadEventStatus, Message: "Fetching templates manifest..."})
+		templatesManifest, err = m.fetchTemplatesManifest(ctx, client)
+	}
+	if err != nil {
+		return nil, templatesSource, fmt.Errorf("failed to load templates manifest: %w", err)
+	}
+	return templatesManifest, templatesSource, nil
+}
+
+// loadSeedsManifest loads the seeds manifest from either a local path or the configured deps base URL.
+func (m *Manager) loadSeedsManifest(ctx context.Context, client *http.Client, opts DownloadOptions, emit func(DownloadEvent)) (*SeedsManifest, string, error) {
+	seedsSource := fmt.Sprintf("%s/%s", m.baseURL, seedsManifestPath)
+	var seedsManifest *SeedsManifest
+	var err error
+	if opts.SeedsManifestPath != "" {
+		seedsSource = opts.SeedsManifestPath
+		emit(DownloadEvent{Type: DownloadEventStatus, Message: fmt.Sprintf("Reading seeds manifest from %s...", opts.SeedsManifestPath)})
+		seedsManifest, err = readSeedsManifestFile(opts.SeedsManifestPath)
+	} else {
+		emit(DownloadEvent{Type: DownloadEventStatus, Message: "Fetching seeds manifest..."})
+		seedsManifest, err = m.fetchSeedsManifest(ctx, client)
+	}
+	if err != nil {
+		return nil, seedsSource, fmt.Errorf("failed to load seeds manifest: %w", err)
+	}
+	return seedsManifest, seedsSource, nil
 }
 
 func downloadPendingMessage(vmconfigPending, componentPending int) string {

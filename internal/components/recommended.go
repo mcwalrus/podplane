@@ -1,0 +1,13 @@
+// Podplane <https://podplane.dev>
+// Copyright 2026 Nadrama Pty Ltd
+// SPDX-License-Identifier: Apache-2.0
+
+package components
+
+var recommendedAddons = []string{"cert-manager", "platform-certs", "traefik"}
+
+// RecommendedAddons returns addon components included by the recommended
+// platform-components seed.
+func RecommendedAddons() []string {
+	return append([]string{}, recommendedAddons...)
+}

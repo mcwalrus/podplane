@@ -25,28 +25,27 @@ const idTokenTTL = time.Hour
 // first.
 const LocalSub = "test-user"
 
-// issueToken signs a fresh id_token and writes the standard token response.
-// Identity claims are hard-coded to "test-user" / "test@localhost" — this is a
-// local development fixture only. Local cluster configs set OIDC client_id to
-// the cluster ID, which is also what kube-apiserver expects in the token
-// audience.
-func issueToken(w http.ResponseWriter, key *rsa.PrivateKey, issuerURL, clusterID string) error {
+// IssueLocalToken signs and returns a fresh id_token suitable for the local
+// fake OIDC. Identity claims are hard-coded to LocalSub / "test@localhost" with
+// the system:masters group — this is a local development fixture only.
+// clusterID becomes the audience and must match the apiserver's configured
+// --oidc-client-id; issuerURL must match its --oidc-issuer-url.
+func IssueLocalToken(key *rsa.PrivateKey, issuerURL, clusterID string) (string, error) {
 	if clusterID == "" {
 		clusterID = "podplane-local"
 	}
 	now := time.Now()
-	exp := now.Add(idTokenTTL)
 	tok, err := jwt.NewBuilder().
 		Issuer(issuerURL).
 		Audience([]string{clusterID}).
 		Subject(LocalSub).
 		IssuedAt(now).
-		Expiration(exp).
+		Expiration(now.Add(idTokenTTL)).
 		Claim("email", "test@localhost").
 		Claim("groups", []string{"system:masters"}).
 		Build()
 	if err != nil {
-		return fmt.Errorf("build token: %w", err)
+		return "", fmt.Errorf("build token: %w", err)
 	}
 	headers := jws.NewHeaders()
 	_ = headers.Set(jws.KeyIDKey, "podplane-local")
@@ -55,17 +54,28 @@ func issueToken(w http.ResponseWriter, key *rsa.PrivateKey, issuerURL, clusterID
 		Sign(jwt.WithKey(jwa.RS256, key, jws.WithProtectedHeaders(headers))).
 		Serialize(tok)
 	if err != nil {
-		return fmt.Errorf("sign token: %w", err)
+		return "", fmt.Errorf("sign token: %w", err)
+	}
+	return string(signed), nil
+}
+
+// issueToken signs a fresh id_token and writes the standard token response.
+// Local cluster configs set OIDC client_id to the cluster ID, which is also
+// what kube-apiserver expects in the token audience.
+func issueToken(w http.ResponseWriter, key *rsa.PrivateKey, issuerURL, clusterID string) error {
+	signed, err := IssueLocalToken(key, issuerURL, clusterID)
+	if err != nil {
+		return err
 	}
 	refresh, err := randomHex(32)
 	if err != nil {
 		return fmt.Errorf("generate refresh token: %w", err)
 	}
 	writeJSON(w, map[string]any{
-		"access_token":  string(signed),
-		"id_token":      string(signed),
+		"access_token":  signed,
+		"id_token":      signed,
 		"token_type":    "Bearer",
-		"expires_in":    int(time.Until(exp).Seconds()),
+		"expires_in":    int(idTokenTTL.Seconds()),
 		"refresh_token": refresh,
 	})
 	return nil

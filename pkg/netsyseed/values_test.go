@@ -2,7 +2,7 @@
 // Copyright 2026 Nadrama Pty Ltd
 // SPDX-License-Identifier: Apache-2.0
 
-package netsyinit
+package netsyseed
 
 import (
 	"testing"
@@ -12,11 +12,11 @@ import (
 
 func TestBuildPlatformComponentsValuesLocalDomain(t *testing.T) {
 	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{Domains: []clusterconfig.Domain{{Zone: "internaltools.localhost", Provider: clusterconfig.DomainProvider{Kind: "local"}}}}}
-	values, err := BuildPlatformComponentsValues(cfg)
+	values, err := buildPlatformComponentsValues(cfg)
 	if err != nil {
-		t.Fatalf("BuildPlatformComponentsValues error = %v", err)
+		t.Fatalf("buildPlatformComponentsValues error = %v", err)
 	}
-	ingress := valuesObject(values, "traefik")["platform"].(map[string]any)["traefik"].(map[string]any)["ingress"].(map[string]any)
+	ingress := componentValues(values, "traefik")["platform"].(map[string]any)["traefik"].(map[string]any)["ingress"].(map[string]any)
 	issuer := ingress["issuerRef"].(map[string]any)
 	if got, want := issuer["name"], "platform-selfsigned-clusterissuer"; got != want {
 		t.Fatalf("issuerRef.name = %v, want %v", got, want)
@@ -30,38 +30,13 @@ func TestBuildPlatformComponentsValuesLocalDomain(t *testing.T) {
 	}
 }
 
-func TestBuildPlatformComponentsValuesAddons(t *testing.T) {
-	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
-		Components: clusterconfig.Components{Addons: []string{"traefik", "snapshot"}},
-	}}
-	values, err := BuildPlatformComponentsValues(cfg)
-	if err != nil {
-		t.Fatalf("BuildPlatformComponentsValues error = %v", err)
-	}
-	components := values["platform"].(map[string]any)["components"].(map[string]any)
-	apps := components["apps"].(map[string]any)
-	for _, name := range []string{"traefik", "snapshot"} {
-		app := apps[name].(map[string]any)
-		if got, want := app["enabled"], true; got != want {
-			t.Fatalf("apps.%s.enabled = %v, want %v", name, got, want)
-		}
-	}
-	crds := components["crds"].(map[string]any)
-	for _, name := range []string{"traefik-crds", "snapshot-crds"} {
-		crd := crds[name].(map[string]any)
-		if got, want := crd["enabled"], true; got != want {
-			t.Fatalf("crds.%s.enabled = %v, want %v", name, got, want)
-		}
-	}
-}
-
 func TestBuildPlatformComponentsValuesAWSProviderEnablesEBSCSI(t *testing.T) {
 	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
 		Providers: []clusterconfig.Provider{{Kind: "aws"}},
 	}}
-	values, err := BuildPlatformComponentsValues(cfg)
+	values, err := buildPlatformComponentsValues(cfg)
 	if err != nil {
-		t.Fatalf("BuildPlatformComponentsValues error = %v", err)
+		t.Fatalf("buildPlatformComponentsValues error = %v", err)
 	}
 	components := values["platform"].(map[string]any)["components"].(map[string]any)
 	apps := components["apps"].(map[string]any)
@@ -80,11 +55,11 @@ func TestBuildPlatformComponentsValuesGroupsAWSSolvers(t *testing.T) {
 			{Zone: "example.net", Provider: clusterconfig.DomainProvider{Kind: "aws", Account: "123", HostedZoneID: "Z123", RoleARN: "arn:aws:iam::123:role/cert-manager"}},
 		},
 	}}
-	values, err := BuildPlatformComponentsValues(cfg)
+	values, err := buildPlatformComponentsValues(cfg)
 	if err != nil {
-		t.Fatalf("BuildPlatformComponentsValues error = %v", err)
+		t.Fatalf("buildPlatformComponentsValues error = %v", err)
 	}
-	certs := valuesObject(values, "platform-certs")["platform"].(map[string]any)["certs"].(map[string]any)
+	certs := componentValues(values, "platform-certs")["platform"].(map[string]any)["certs"].(map[string]any)
 	acme := certs["acme"].(map[string]any)
 	solvers := acme["solvers"].([]map[string]any)
 	if got, want := len(solvers), 1; got != want {
@@ -110,11 +85,11 @@ func TestBuildPlatformComponentsValuesCloudflareSecretSync(t *testing.T) {
 			Kind: "cloudflare", SecretName: "cloudflare-dns01", SecretProviderClassName: "cloudflare-dns01",
 		}}},
 	}}
-	values, err := BuildPlatformComponentsValues(cfg)
+	values, err := buildPlatformComponentsValues(cfg)
 	if err != nil {
-		t.Fatalf("BuildPlatformComponentsValues error = %v", err)
+		t.Fatalf("buildPlatformComponentsValues error = %v", err)
 	}
-	certs := valuesObject(values, "platform-certs")["platform"].(map[string]any)["certs"].(map[string]any)
+	certs := componentValues(values, "platform-certs")["platform"].(map[string]any)["certs"].(map[string]any)
 	if certs["secretSync"] == nil {
 		t.Fatalf("expected secretSync values")
 	}
@@ -131,12 +106,14 @@ func TestBuildPlatformComponentsValuesAmbiguousAWSRegion(t *testing.T) {
 		Providers: []clusterconfig.Provider{{Kind: "aws", Region: "us-east-1"}, {Kind: "aws", Region: "us-west-2"}},
 		Domains:   []clusterconfig.Domain{{Zone: "example.com", Provider: clusterconfig.DomainProvider{Kind: "aws"}}},
 	}}
-	if _, err := BuildPlatformComponentsValues(cfg); err == nil {
+	if _, err := buildPlatformComponentsValues(cfg); err == nil {
 		t.Fatalf("expected ambiguous AWS provider error")
 	}
 }
 
-func valuesObject(values map[string]any, name string) map[string]any {
+// componentValues returns the nested values block for a named component in the
+// platform-components Helm values map.
+func componentValues(values map[string]any, name string) map[string]any {
 	components := values["platform"].(map[string]any)["components"].(map[string]any)
-	return components["valuesObject"].(map[string]any)[name].(map[string]any)
+	return components["values"].(map[string]any)[name].(map[string]any)
 }

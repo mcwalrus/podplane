@@ -1,12 +1,12 @@
 ---
 title: "oidc delete"
 weight: 21
-description: "Remove deployed OIDC infrastructure and generated files"
+description: "Remove deployed OIDC infrastructure"
 ---
 
 ## Overview
 
-Removes deployed infrastructure (on AWS/Google Cloud) and deletes generated files created by `podplane oidc create`.
+Removes deployed infrastructure. The OIDC config and generated `.tf` files are left in place.
 
 ```
 podplane oidc delete [flags]
@@ -16,4 +16,6 @@ podplane oidc delete [flags]
 
 | Flag | Description |
 | --- | --- |
-| `-f, --file string` | Path to the OIDC config file (default: `podplane.oidc.jsonc` in the current directory) |
+| `-f, --oidc-config string` | Path to the OIDC config file (default: `podplane.oidc.jsonc` in the current directory) |
+| `--no-apply` | Validate the config but do not run destroy |
+| `-y, --auto-approve` | Skip confirmation prompts and pass auto-approval to OpenTofu/Terraform |

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/podplane/podplane/internal/clusterconfig"
+	"github.com/podplane/podplane/internal/components"
 	"github.com/podplane/podplane/internal/deps"
 	"github.com/podplane/podplane/internal/tui"
 	"github.com/spf13/cobra"
@@ -25,10 +26,13 @@ var (
 	depsDownloadDryRun             bool
 	depsDownloadVMConfigManifest   string
 	depsDownloadComponentsManifest string
+	depsDownloadTemplatesManifest  string
+	depsDownloadSeedsManifest      string
 	depsDownloadArchs              string
 	depsDownloadProviders          string
 	depsDownloadAddons             string
 	depsDownloadClusterConfig      string
+	depsDownloadSkipSeeds          bool
 )
 
 func init() {
@@ -38,14 +42,20 @@ func init() {
 		"Path to a local vmconfig manifest JSON file to use instead of downloading the manifest")
 	depsDownloadCmd.Flags().StringVar(&depsDownloadComponentsManifest, "components", "",
 		"Path to a local components manifest JSON file to use instead of downloading the manifest")
+	depsDownloadCmd.Flags().StringVar(&depsDownloadTemplatesManifest, "templates", "",
+		"Path to a local templates manifest JSON file to use instead of downloading the manifest")
+	depsDownloadCmd.Flags().StringVar(&depsDownloadSeedsManifest, "seeds", "",
+		"Path to a local seeds manifest JSON file to use instead of downloading the manifest")
 	depsDownloadCmd.Flags().StringVar(&depsDownloadArchs, "arch", "",
 		"Comma-separated target architectures to download (amd64,arm64). Defaults to the configured architecture")
 	depsDownloadCmd.Flags().StringVar(&depsDownloadProviders, "providers", "",
 		"Comma-separated provider-specific dependencies and component images to include (for example aws,google), or all")
 	depsDownloadCmd.Flags().StringVar(&depsDownloadAddons, "addons", "",
-		"Comma-separated addon component images to include (for example traefik,snapshot), or all")
+		"Comma-separated addon component images to include in addition to the recommended addons, or all")
 	depsDownloadCmd.Flags().StringVarP(&depsDownloadClusterConfig, "cluster-config", "f", "",
-		"Path to a cluster config file to infer providers and addon components")
+		"Path to a cluster config file to infer providers")
+	depsDownloadCmd.Flags().BoolVar(&depsDownloadSkipSeeds, "skip-seeds", false,
+		"Skip downloading seed manifests and snapshots")
 }
 
 func newDepsDownloadCmd(manager *deps.Manager, kind, arch string) *cobra.Command {
@@ -60,7 +70,8 @@ func newDepsDownloadCmd(manager *deps.Manager, kind, arch string) *cobra.Command
 			}
 		}
 		providers := []string{depsDownloadProviders}
-		addons := []string{depsDownloadAddons}
+		addons := components.RecommendedAddons()
+		addons = append(addons, depsDownloadAddons)
 		if depsDownloadClusterConfig != "" {
 			cfg, err := clusterconfig.Load(depsDownloadClusterConfig)
 			if err != nil {
@@ -72,23 +83,22 @@ func newDepsDownloadCmd(manager *deps.Manager, kind, arch string) *cobra.Command
 			for _, domain := range cfg.Cluster.Domains {
 				providers = append(providers, domain.Provider.Kind)
 			}
-			if len(cfg.Cluster.Domains) > 0 {
-				addons = append(addons, "cert-manager", "platform-certs", "traefik")
-			}
-			addons = append(addons, cfg.Cluster.Components.Addons...)
 		}
 
 		if depsDownloadDryRun {
 			fmt.Println("Fetching latest dependency manifest...")
 			for i, arch := range archs {
 				err := manager.Download(kind, arch, deps.DownloadOptions{
-					DryRun:                 true,
-					Archs:                  archs,
-					Providers:              providers,
-					Addons:                 addons,
-					SkipComponentImages:    i > 0,
-					VMConfigManifestPath:   depsDownloadVMConfigManifest,
-					ComponentsManifestPath: depsDownloadComponentsManifest,
+					DryRun:                    true,
+					Archs:                     archs,
+					Providers:                 providers,
+					Addons:                    addons,
+					SkipCrossArchDependencies: i > 0,
+					VMConfigManifestPath:      depsDownloadVMConfigManifest,
+					ComponentsManifestPath:    depsDownloadComponentsManifest,
+					TemplatesManifestPath:     depsDownloadTemplatesManifest,
+					SeedsManifestPath:         depsDownloadSeedsManifest,
+					SkipSeeds:                 depsDownloadSkipSeeds,
 				})
 				if err != nil {
 					fmt.Printf("Error downloading the latest dependency files: %v\n", err)
@@ -101,13 +111,16 @@ func newDepsDownloadCmd(manager *deps.Manager, kind, arch string) *cobra.Command
 		err := tui.RunDownloadProgress("Downloading Podplane dependencies", func(progress func(deps.DownloadEvent)) error {
 			for i, arch := range archs {
 				err := manager.Download(kind, arch, deps.DownloadOptions{
-					Archs:                  archs,
-					Providers:              providers,
-					Addons:                 addons,
-					Progress:               progress,
-					SkipComponentImages:    i > 0,
-					VMConfigManifestPath:   depsDownloadVMConfigManifest,
-					ComponentsManifestPath: depsDownloadComponentsManifest,
+					Archs:                     archs,
+					Providers:                 providers,
+					Addons:                    addons,
+					Progress:                  progress,
+					SkipCrossArchDependencies: i > 0,
+					VMConfigManifestPath:      depsDownloadVMConfigManifest,
+					ComponentsManifestPath:    depsDownloadComponentsManifest,
+					TemplatesManifestPath:     depsDownloadTemplatesManifest,
+					SeedsManifestPath:         depsDownloadSeedsManifest,
+					SkipSeeds:                 depsDownloadSkipSeeds,
 				})
 				if err != nil {
 					return err

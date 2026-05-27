@@ -12,6 +12,15 @@ App templates are opinionated Helm charts that make it easy to deploy common wor
 podplane deploy <template> --name <name> --image <image>
 ```
 
+Environment variables can be set with Docker-style `-e` / `--env` flags:
+
+```bash
+podplane deploy web --name hello --image ghcr.io/podplane/hello:latest \
+  -e HELLO_MESSAGE="G'Day World!"
+```
+
+Use `KEY=value` to pass an explicit value, or `KEY` to read the value from the local environment. Environment variables are stored in the rendered Deployment and Helm release metadata, so use them for non-secret configuration only.
+
 Templates may have component dependencies. If the required addon components aren't installed, the CLI will prompt you to install them.
 
 To update an existing app (e.g. to deploy a new image version), simply re-run `podplane deploy` with the same `--name`.
@@ -32,21 +41,31 @@ The `web` template deploys a web application with automatic TLS and ingress rout
 - A cert-manager Certificate for pod-internal mTLS
 - A BackendTLSPolicy ensuring encrypted gateway-to-service traffic
 
-Your app container serves plain HTTP on port 80 - the Caddy sidecar handles all TLS. No TLS configuration is needed in your app.
+Your app container serves plain HTTP on port 80 by default - the Caddy sidecar handles all TLS. No TLS configuration is needed in your app. Use `--set app.port=<port>` if your image listens on a different plain HTTP port.
 
-### Options
+### Template values
 
-| Option | Default | Description |
+Use [`podplane deploy`](./cli-reference/deploy.md) flags for universal inputs such as app name, image, and environment variables.
+
+The web template also supports the ergonomic routing flags `--hostname` and `--path`.
+
+Template-specific values can be set with `--set` e.g.:
+
+| Value | Default | Description |
 |---|---|---|
-| `--name` | *(required)* | App name, used as prefix for all Kubernetes resources |
-| `--image` | *(required)* | Container image for the application |
-| `--hostname` | *(none)* | External hostname for routing (matches any hostname if omitted) |
-| `--path` | `/` | URL path prefix for routing |
+| `app.port` | `80` | Plain HTTP port exposed by the app container |
+| `route.hostname` | `""` | External hostname for routing; `--hostname` maps here |
+| `route.path` | `/` | URL path prefix for routing; `--path` maps here |
+| `metrics.http` | `true` | Enable Caddy HTTP metrics |
 
 ### Example
 
 ```bash
-podplane deploy web --name myapp --image myorg/myapp:latest --hostname myapp.example.com
+podplane deploy web \
+  --name hello \
+  --image ghcr.io/podplane/hello:latest \
+  --hostname hello.example.com \
+  -e HELLO_MESSAGE="G'Day World!"
 ```
 
 ### How It Works
@@ -57,11 +76,11 @@ External Traffic
     → Traefik Gateway
       → BackendTLSPolicy (verified mTLS)
         → Service (:443)
-          → Caddy sidecar (TLS termination, reverse proxy to localhost:80)
-            → App container (:80, plain HTTP)
+          → Caddy sidecar (TLS termination, reverse proxy to localhost:<port>)
+            → App container (<port>, plain HTTP)
 ```
 
-The Caddy sidecar mounts a cert-manager-issued TLS certificate and reverse proxies to your app on `127.0.0.1:80`. The BackendTLSPolicy verifies the connection from the gateway to the service using the platform's self-signed CA bundle.
+The Caddy sidecar mounts a cert-manager-issued TLS certificate and reverse proxies to your app on `127.0.0.1:<port>`. The BackendTLSPolicy verifies the connection from the gateway to the service using the platform's self-signed CA bundle.
 
 ## `worker`
 
@@ -76,15 +95,30 @@ The `worker` template deploys a background worker process with no ingress or TLS
 
 This is suitable for queue consumers, cron-like processors, or any workload that initiates its own outbound connections rather than serving HTTP traffic.
 
-### Options
+### Template values
 
-| Option | Default | Description |
-|---|---|---|
-| `--name` | *(required)* | App name, used as prefix for all Kubernetes resources |
-| `--image` | *(required)* | Container image for the worker |
+Use [`podplane deploy`](./cli-reference/deploy.md) flags for universal inputs such as worker name, image, and environment variables. Worker-specific configuration should be exposed as schema-backed template values and set with `--set`.
 
 ### Example
 
 ```bash
-podplane deploy worker --name email-sender --image myorg/email-sender:latest
+podplane deploy worker \
+  --name email-sender \
+  --image myorg/email-sender:latest \
+  -e QUEUE=default
+```
+
+## Template values contract
+
+Every template chart must include `values.schema.json`. The schema is the contract for supported template values and is used by Podplane to validate common ergonomic flags before invoking Helm.
+
+`podplane deploy` keeps a small stable set of universal flags: `--name`, `--image`, `-e` / `--env`, `--namespace`, Kubernetes context flags, and `--auto-approve`. These apply to deploy itself rather than to any one template.
+
+Some flags are common ergonomic shortcuts for template values. Today `--hostname` maps to `route.hostname`, and `--path` maps to `route.path`. Because not every template supports routing, the deploy command checks the template's `values.schema.json` and fails loudly if one of these flags is used with an unsupported template.
+
+Template-specific configuration uses Helm-compatible `--set` syntax instead of dedicated Podplane flags:
+
+```bash
+podplane deploy web --name hello --image ghcr.io/podplane/hello:latest \
+  --set app.port=8080
 ```

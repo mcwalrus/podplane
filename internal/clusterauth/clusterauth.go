@@ -152,6 +152,16 @@ func Logout(c *config.Config, stdout io.Writer, clusterID string, local bool) er
 	return nil
 }
 
+// LogoutLocal clears cached auth state and kubectl access for a local cluster.
+func LogoutLocal(stdout io.Writer, clusterID string) error {
+	c, restoreKeyringPass, err := config.InitWithLocalKeyring()
+	if err != nil {
+		return err
+	}
+	defer restoreKeyringPass()
+	return Logout(c, stdout, clusterID, true)
+}
+
 func loadClusterForHook(c *config.Config, clusterID string, meta config.AuthMetadata) (*clusterconfig.ClusterConfig, bool, error) {
 	stash := local.ClusterConfigPath(c.DataDirectory(), clusterID)
 	if _, err := os.Stat(stash); err == nil {

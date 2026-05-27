@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/podplane/podplane/internal/config"
 	"github.com/podplane/podplane/internal/execwrap"
 )
 
@@ -81,6 +82,9 @@ func SetCredentials(stdout io.Writer, sub string, clusterID string, local bool) 
 		"--exec-arg=--user",
 		"--exec-arg="+sub,
 	)
+	if local {
+		cmd.Args = append(cmd.Args, "--exec-env="+config.KeyringPassEnv+"="+config.LocalKeyringPass)
+	}
 	cmd.Stdout = stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

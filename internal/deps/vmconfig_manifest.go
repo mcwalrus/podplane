@@ -27,7 +27,8 @@ const ImageDepName = "os-image"
 const VMConfigDepName = "vmconfig"
 
 // Manifest is the top-level structure of the vmconfig manifest JSON file
-// as published at <DepsBaseURL>/deps/vmconfig/manifests/<kind>.<os>.<arch>.json
+// as published at
+// <DepsBaseURL>/vmconfig/manifests/vmconfig_<kind>_<os>_<arch>.json.
 type Manifest struct {
 	VMConfig VMConfig `json:"vmconfig"`
 }

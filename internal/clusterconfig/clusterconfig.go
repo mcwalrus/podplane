@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/tidwall/jsonc"
+	"github.com/tailscale/hujson"
 )
 
 // Load reads a .cluster.jsonc file from disk, strips comments, and unmarshals
@@ -19,8 +19,12 @@ func Load(path string) (*ClusterConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read cluster config %s: %w", path, err)
 	}
+	standardized, err := hujson.Standardize(raw)
+	if err != nil {
+		return nil, fmt.Errorf("parse cluster config %s: %w", path, err)
+	}
 	cfg := &ClusterConfig{}
-	if err := json.Unmarshal(jsonc.ToJSON(raw), cfg); err != nil {
+	if err := json.Unmarshal(standardized, cfg); err != nil {
 		return nil, fmt.Errorf("parse cluster config %s: %w", path, err)
 	}
 	if cfg.Cluster.ID == "" {
@@ -32,8 +36,24 @@ func Load(path string) (*ClusterConfig, error) {
 	if cfg.Cluster.OIDC.IssuerURL == "" {
 		return nil, fmt.Errorf("cluster config %s: missing cluster.oidc.issuer_url", path)
 	}
+	if err := ValidateSeed(cfg.Cluster.Seed); err != nil {
+		return nil, fmt.Errorf("cluster config %s: invalid cluster.seed: %w", path, err)
+	}
 	if err := ValidateComponents(cfg.Cluster.Components); err != nil {
 		return nil, fmt.Errorf("cluster config %s: invalid cluster.components: %w", path, err)
 	}
 	return cfg, nil
+}
+
+// Write writes a formatted cluster configuration file to disk.
+func Write(path string, cfg *ClusterConfig) error {
+	raw, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal cluster config: %w", err)
+	}
+	raw = append(raw, '\n')
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		return fmt.Errorf("write cluster config %s: %w", path, err)
+	}
+	return nil
 }

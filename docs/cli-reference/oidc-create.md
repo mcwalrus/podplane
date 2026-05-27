@@ -16,4 +16,6 @@ podplane oidc create [flags]
 
 | Flag | Description |
 | --- | --- |
-| `-f, --file string` | Path to the OIDC config file (default: `podplane.oidc.jsonc` in the current directory) |
+| `-f, --oidc-config string` | Path to the OIDC config file (default: `podplane.oidc.jsonc` in the current directory) |
+| `--no-apply` | Generate OpenTofu/Terraform files but do not run apply |
+| `-y, --auto-approve` | Skip confirmation prompts and pass auto-approval to OpenTofu/Terraform |

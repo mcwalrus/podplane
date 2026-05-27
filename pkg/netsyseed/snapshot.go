@@ -2,10 +2,11 @@
 // Copyright 2026 Nadrama Pty Ltd
 // SPDX-License-Identifier: Apache-2.0
 
-package netsyinit
+package netsyseed
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,38 +26,41 @@ const (
 )
 
 type SnapshotOptions struct {
+	Context           context.Context
 	ClusterConfigPath string
-	Template          string
-	DepsBaseURL       string
+	SeedPath          string
 	ValuesFile        string
 }
 
-// WriteSnapshot writes an initial Netsy snapshot with platform-components
-// values derived from the cluster config interpolated into the template.
+// WriteSnapshot seeds a Netsy snapshot with platform-components values derived
+// from the cluster config interpolated into the seed file.
 func WriteSnapshot(w io.Writer, opts SnapshotOptions) error {
+	if opts.SeedPath == "" {
+		return fmt.Errorf("seed path is required")
+	}
 	cluster, err := clusterconfig.Load(opts.ClusterConfigPath)
 	if err != nil {
 		return err
 	}
-	values, err := BuildPlatformComponentsValues(cluster)
+	values, err := buildPlatformComponentsValues(cluster)
 	if err != nil {
 		return err
 	}
-	if err := MergeValuesFile(values, opts.ValuesFile); err != nil {
+	if err := mergeValuesFile(values, opts.ValuesFile); err != nil {
 		return err
 	}
-	templateData, err := LoadTemplate(opts)
+	seedData, err := loadSeedFile(opts.Context, opts.SeedPath)
 	if err != nil {
 		return err
 	}
-	records, err := datafile.ReadSnapshot(bytes.NewReader(templateData))
+	records, err := datafile.ReadSnapshot(bytes.NewReader(seedData))
 	if err != nil {
-		return fmt.Errorf("read Netsy snapshot template: %w", err)
+		return fmt.Errorf("read Podplane seed file: %w", err)
 	}
-	if err := InterpolatePlatformComponents(records, values); err != nil {
+	if err := interpolatePlatformComponents(records, values); err != nil {
 		return err
 	}
-	if err := InterpolateComponentsSource(records, cluster.Cluster.Components.Source); err != nil {
+	if err := interpolateComponentsSource(records, cluster.Cluster.Components.Source); err != nil {
 		return err
 	}
 	if err := datafile.WriteSnapshot(w, records, cluster.Cluster.ID); err != nil {
@@ -65,8 +69,8 @@ func WriteSnapshot(w io.Writer, opts SnapshotOptions) error {
 	return nil
 }
 
-// MergeValuesFile merges a YAML/JSON values file over dst.
-func MergeValuesFile(dst map[string]any, path string) error {
+// mergeValuesFile merges a YAML/JSON values file over dst.
+func mergeValuesFile(dst map[string]any, path string) error {
 	if path == "" {
 		return nil
 	}
@@ -84,46 +88,41 @@ func MergeValuesFile(dst map[string]any, path string) error {
 	return nil
 }
 
-// LoadTemplate returns the Netsy snapshot template from an explicit local path
-// or URL when provided, otherwise downloading it from the default URL.
-func LoadTemplate(opts SnapshotOptions) ([]byte, error) {
-	template := opts.Template
-	if template != "" {
-		parsed, err := url.Parse(template)
-		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-			data, err := os.ReadFile(template)
-			if err != nil {
-				return nil, fmt.Errorf("read Netsy snapshot template %s: %w", template, err)
-			}
-			return data, nil
-		}
-	} else {
-		template = DefaultTemplateURL(opts.DepsBaseURL)
+// loadSeedFile returns the Podplane seed file from a local path or URL.
+func loadSeedFile(ctx context.Context, seed string) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	resp, err := http.Get(template)
+	parsed, err := url.Parse(seed)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		data, err := os.ReadFile(seed)
+		if err != nil {
+			return nil, fmt.Errorf("read Podplane seed file %s: %w", seed, err)
+		}
+		return data, nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, seed, nil)
 	if err != nil {
-		return nil, fmt.Errorf("download Netsy snapshot template %s: %w", template, err)
+		return nil, fmt.Errorf("download Podplane seed file %s: %w", seed, err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("download Podplane seed file %s: %w", seed, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("download Netsy snapshot template %s: HTTP %s", template, resp.Status)
+		return nil, fmt.Errorf("download Podplane seed file %s: HTTP %s", seed, resp.Status)
 	}
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read Netsy snapshot template response: %w", err)
+		return nil, fmt.Errorf("read Podplane seed file response: %w", err)
 	}
 	return data, nil
 }
 
-// DefaultTemplateURL builds the default Netsy snapshot template URL from the
-// dependency base URL.
-func DefaultTemplateURL(depsBaseURL string) string {
-	return strings.TrimRight(depsBaseURL, "/") + "/netsy/recommended.netsy"
-}
-
-// InterpolatePlatformComponents merges derived platform-components values into
+// interpolatePlatformComponents merges derived platform-components values into
 // the platform-components HelmRelease record in a Netsy snapshot.
-func InterpolatePlatformComponents(records []*datafile.Record, values map[string]any) error {
+func interpolatePlatformComponents(records []*datafile.Record, values map[string]any) error {
 	for i := range records {
 		if string(records[i].Key) != platformComponentsHelmReleaseKey {
 			continue
@@ -154,12 +153,12 @@ func InterpolatePlatformComponents(records []*datafile.Record, values map[string
 		records[i].Value = buf.Bytes()
 		return nil
 	}
-	return fmt.Errorf("Netsy snapshot template does not contain the platform-components HelmRelease at %s", platformComponentsHelmReleaseKey)
+	return fmt.Errorf("Podplane seed file does not contain the platform-components HelmRelease at %s", platformComponentsHelmReleaseKey)
 }
 
-// InterpolateComponentsSource updates the bootstrap GitRepository used by Flux
+// interpolateComponentsSource updates the bootstrap GitRepository used by Flux
 // to source the platform-components chart and child component HelmReleases.
-func InterpolateComponentsSource(records []*datafile.Record, source *clusterconfig.ComponentsSource) error {
+func interpolateComponentsSource(records []*datafile.Record, source *clusterconfig.ComponentsSource) error {
 	if source == nil || source.URL == "" {
 		return nil
 	}
@@ -210,7 +209,7 @@ func InterpolateComponentsSource(records []*datafile.Record, source *clusterconf
 		records[i].Value = buf.Bytes()
 		return nil
 	}
-	return fmt.Errorf("Netsy snapshot template does not contain the podplane-components GitRepository at %s", podplaneComponentsGitKey)
+	return fmt.Errorf("Podplane seed file does not contain the podplane-components GitRepository at %s", podplaneComponentsGitKey)
 }
 
 // ensureMap returns the existing map value for key or creates and stores a new

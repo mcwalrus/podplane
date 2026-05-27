@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -20,10 +21,13 @@ import (
 	"github.com/fatih/color"
 	"github.com/puidv7/puidv7-go"
 
+	"github.com/podplane/podplane/internal/clusterconfig"
 	"github.com/podplane/podplane/internal/deps"
 	"github.com/podplane/podplane/internal/osboot"
+	"github.com/podplane/podplane/internal/tui"
 	"github.com/podplane/podplane/internal/userdata"
 	"github.com/podplane/podplane/internal/vm"
+	"github.com/podplane/podplane/pkg/seeds"
 )
 
 // StartOptions controls local cluster startup.
@@ -31,7 +35,9 @@ type StartOptions struct {
 	CPUs                string
 	Memory              string
 	StreamUserdataLogs  bool
+	Components          string
 	RunDownloadProgress func(run func(progress func(deps.DownloadEvent)) error) error
+	Progress            tui.TaskProgress
 }
 
 // Start is used to create a cluster, create a VM, and start a VM.
@@ -51,6 +57,13 @@ func (m *Local) Start(opts StartOptions) (string, error) {
 	if clusterID == "" {
 		return "", fmt.Errorf("clusterID must be set")
 	}
+	progress := opts.Progress
+	progressOutput := progress != nil
+	output := io.Writer(os.Stdout)
+	if progressOutput {
+		output = io.Discard
+	}
+	m.vm.SetOutput(output)
 
 	// Verify cached deps. If anything is missing or corrupt, auto-run a
 	// download so the user doesn't need to invoke `podplane deps download`
@@ -110,10 +123,17 @@ func (m *Local) Start(opts StartOptions) (string, error) {
 	}
 
 	// Start the local server as a background process if not already running
-	err = m.ServerEnsure()
+	progress.Started("server", "Local server", "")
+	err = m.ServerEnsure(output)
 	if err != nil {
+		progress.Failed("server", "Local server", err)
 		return "", fmt.Errorf("failed to start background server for local clusters: %w", err)
 	}
+	serverMessage := fmt.Sprintf("http %s · https %s", m.webserverPIDFile.GetData("http_port"), m.webserverPIDFile.GetData("https_port"))
+	if logPath := ServerLogPath(m.runtimeDir); logPath != "" {
+		serverMessage += fmt.Sprintf(" · log %s", logPath)
+	}
+	progress.Done("server", "Local server", serverMessage)
 
 	// Determine the host machine address from inside the guest machine.
 	hostMachineAddr := m.vm.Addr()
@@ -149,6 +169,33 @@ func (m *Local) Start(opts StartOptions) (string, error) {
 	if m.instanceID == "" && vmExisted {
 		m.instanceID = m.existingInstanceID(clusterID)
 	}
+	if vmExisted {
+		progress.Omitted("vm-image", "VM image")
+		progress.Omitted("cloud-init", "cloud-init user-data")
+	}
+
+	// Existing local clusters keep the seed recorded in cluster.jsonc. Only new
+	// VMs need to resolve the requested seed version from the cached seeds
+	// manifest because only new VMs write the initial Netsy snapshot.
+	seed := clusterconfig.Seed{Name: seeds.None}
+	if vmExisted {
+		seed, err = m.getSeedConfig(clusterID)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		seedName, err := seeds.ParseName(opts.Components)
+		if err != nil {
+			return "", fmt.Errorf("invalid --components: %w", err)
+		}
+		seed = clusterconfig.Seed{Name: seedName}
+		if seed.Name != seeds.None {
+			seed.Version, err = depsManager.CachedSeedsVersion()
+			if err != nil {
+				return "", fmt.Errorf("determine Podplane seed version: %w", err)
+			}
+		}
+	}
 	if m.instanceID == "" {
 		id, err := puidv7.New("knc")
 		if err != nil {
@@ -157,14 +204,47 @@ func (m *Local) Start(opts StartOptions) (string, error) {
 		m.instanceID = id
 	}
 	instanceID := m.instanceID
+
+	// Write the .cluster.jsonc stash and (on first boot) seed the local
+	// Netsy bucket with the initial platform-components snapshot. Both must
+	// happen before VM create/start so Netsy reads the seeded state on its
+	// very first boot. The stash is also the source of truth for the
+	// seeding step (it carries cluster.domains).
+	hostOIDCIssuer, err := m.HostOIDCIssuerURL()
+	if err != nil {
+		return "", fmt.Errorf("failed to derive host OIDC issuer URL: %w", err)
+	}
+	apiPort, err := strconv.Atoi(m.webserverPIDFile.GetData("ingress_https_port"))
+	if err != nil {
+		return "", fmt.Errorf("failed to derive local Kubernetes API ingress port: %w", err)
+	}
+	if apiPort == 0 {
+		return "", fmt.Errorf("local server is missing ingress HTTPS port")
+	}
+	stashPath, err := m.WriteLocalClusterConfig(clusterID, hostOIDCIssuer, m.OIDCCACertPath(), LocalKubernetesAPIHostname(clusterID), apiPort, seed)
+	if err != nil {
+		return "", fmt.Errorf("failed to write local cluster config: %w", err)
+	}
 	if !vmExisted {
+		// Seed before VM creation so a later create failure doesn't leave
+		// us in a state where vmExisted=true skips seeding on retry.
+		depsServerURLHost, err := m.DepsServerURL("", "")
+		if err != nil {
+			return "", fmt.Errorf("failed to derive host-side deps URL for seeding: %w", err)
+		}
+		if err := m.ensureInitialNetsySnapshot(stashPath, depsServerURLHost, seed); err != nil {
+			return "", fmt.Errorf("seed local Netsy snapshot: %w", err)
+		}
 		// Create the VM, using the cached OS image from the vmconfig manifest as
 		// the qcow2 backing file.
 		baseImage := depsManager.VMConfigArtifactCachePath(deps.ImageDepName, manifest.VMConfig.OS.Image)
+		progress.Started("vm-image", "VM image", "")
 		if err := m.vm.Create(baseImage); err != nil {
+			progress.Failed("vm-image", "VM image", err)
 			_ = m.ServerCleanup()
 			return "", fmt.Errorf("failed to create VM: %w", err)
 		}
+		progress.Done("vm-image", "VM image", "")
 	}
 
 	// Prefer direct kernel boot when the manifest provides explicit boot
@@ -254,8 +334,10 @@ func (m *Local) Start(opts StartOptions) (string, error) {
 	vars.Env.SetObjectStorageCredentials("test", "test")
 	vars.ApplyDefaults()
 	mutableEnv := renderLocalMutableEnv(vars.Env)
+	mutableEnvChanged := false
 	if vmExisted {
-		if err := m.stageMutableEnvIfChanged(context.Background(), nstanceStore, clusterID, instanceID, mutableEnv); err != nil {
+		mutableEnvChanged, err = m.stageMutableEnvIfChanged(context.Background(), nstanceStore, clusterID, instanceID, mutableEnv)
+		if err != nil {
 			return "", fmt.Errorf("failed to stage local mutable env update: %w", err)
 		}
 	}
@@ -280,12 +362,15 @@ func (m *Local) Start(opts StartOptions) (string, error) {
 	}
 
 	// Start the VM
+	progress.Started("vm", "VM", fmt.Sprintf("qemu · %s CPU · %s", opts.CPUs, opts.Memory))
 	if err := m.vm.Start(rendered, opts.CPUs, opts.Memory, sshAuthorizedKey, false, directBoot, vmPortForwards); err != nil {
+		progress.Failed("vm", "VM", err)
 		if !errors.Is(err, vm.ErrAlreadyRunning) {
 			_ = m.ServerCleanup()
 		}
 		return "", fmt.Errorf("failed to start VM: %w", err)
 	}
+	progress.Done("vm", "VM", "")
 	if !vmExisted {
 		if err := m.writeMutableEnvBaseline(clusterID, mutableEnv); err != nil {
 			return "", fmt.Errorf("failed to record local mutable env baseline: %w", err)
@@ -299,13 +384,56 @@ func (m *Local) Start(opts StartOptions) (string, error) {
 		return "", err
 	}
 
-	color.Green("✅ VM started successfully")
+	if !progressOutput {
+		color.Green("✓ VM started successfully")
+	}
 	if sshAuthorizedKey != "" {
-		if err := m.WaitForReadiness(context.Background(), ReadinessOptions{
-			StreamUserdataLogs: opts.StreamUserdataLogs,
-		}); err != nil {
-			return "", fmt.Errorf("local VM readiness check failed: %w", err)
+		if !vmExisted {
+			progress.Started("cloud-init", "cloud-init user-data", "")
+			if err := m.WaitForReadiness(context.Background(), ReadinessOptions{
+				StreamUserdataLogs: opts.StreamUserdataLogs,
+				Quiet:              progressOutput,
+			}); err != nil {
+				progress.Failed("cloud-init", "cloud-init user-data", err)
+				return "", fmt.Errorf("local VM readiness check failed: %w", err)
+			}
+			progress.Done("cloud-init", "cloud-init user-data", "")
 		}
+		progress.Started("system-services", "systemd services", "")
+		if err := m.WaitForSystemServices(context.Background(), WaitOptions{Quiet: progressOutput}); err != nil {
+			progress.Failed("system-services", "system services", err)
+			return "", fmt.Errorf("local VM system service readiness check failed: %w", err)
+		}
+		progress.Done("system-services", "system services", "")
+		if vmExisted && mutableEnvChanged {
+			if err := m.repairExistingNstanceAgentEnv(context.Background(), vmPorts.SSH, nstanceBootstrap.ServerRegistrationAddr, nstanceBootstrap.ServerAgentAddr, progressOutput); err != nil {
+				return "", fmt.Errorf("failed to repair local nstance agent endpoint config: %w", err)
+			}
+		}
+		progress.Started("nstance-agent", "nstance", "registration")
+		if err := m.WaitForNstanceAgentRegistration(context.Background(), WaitOptions{Quiet: progressOutput}); err != nil {
+			progress.Failed("nstance-agent", "Nstance agent", err)
+			return "", fmt.Errorf("local VM nstance-agent readiness check failed: %w", err)
+		}
+		progress.Done("nstance-agent", "Nstance agent", "")
+		progress.Started("netsy", "netsy", "health")
+		if err := m.WaitForNetsyHealth(context.Background(), WaitOptions{Quiet: progressOutput}); err != nil {
+			progress.Failed("netsy", "Netsy", err)
+			return "", fmt.Errorf("local VM Netsy health check failed: %w", err)
+		}
+		progress.Done("netsy", "Netsy", "")
+		progress.Started("api-live", "kubernetes live", "")
+		if err := m.waitForAPIServerEndpoint(context.Background(), "live", progressOutput, m.ProbeAPIServerLive); err != nil {
+			progress.Failed("api-live", "Kubernetes API live", err)
+			return "", fmt.Errorf("local VM Kubernetes API readiness check failed: %w", err)
+		}
+		progress.Done("api-live", "Kubernetes API live", "")
+		progress.Started("api-ready", "kubernetes ready", "")
+		if err := m.waitForAPIServerEndpoint(context.Background(), "ready", progressOutput, m.ProbeAPIServerReady); err != nil {
+			progress.Failed("api-ready", "Kubernetes API ready", err)
+			return "", fmt.Errorf("local VM Kubernetes API readiness check failed: %w", err)
+		}
+		progress.Done("api-ready", "Kubernetes API ready", "")
 	} else {
 		slog.Warn("skipping local VM readiness check because no SSH public key was available")
 	}
@@ -321,28 +449,28 @@ func (m *Local) Start(opts StartOptions) (string, error) {
 	default:
 	}
 
-	// Write the .cluster.jsonc stash so the host-side `podplane login` (and
-	// the in-process auto-login the cmd layer is about to run) can find this
-	// local cluster by --cluster <id>. The OIDC issuer URL uses a shared
-	// localhost hostname that is reachable from both the host CLI and the guest
-	// VM's local-provider hosts entry.
-	hostOIDCIssuer, err := m.HostOIDCIssuerURL()
-	if err != nil {
-		return "", fmt.Errorf("failed to derive host OIDC issuer URL: %w", err)
-	}
-	apiPort, err := strconv.Atoi(m.webserverPIDFile.GetData("ingress_https_port"))
-	if err != nil {
-		return "", fmt.Errorf("failed to derive local Kubernetes API ingress port: %w", err)
-	}
-	if apiPort == 0 {
-		return "", fmt.Errorf("local server is missing ingress HTTPS port")
-	}
-	stashPath, err := m.WriteLocalClusterConfig(clusterID, hostOIDCIssuer, m.OIDCCACertPath(), LocalKubernetesAPIHostname(clusterID), apiPort)
-	if err != nil {
-		return "", fmt.Errorf("failed to write local cluster config: %w", err)
-	}
-
 	return stashPath, nil
+}
+
+// repairExistingNstanceAgentEnv updates only nstance-agent env for existing VMs
+// if the fake nstance-server ports have changed, enabling the agent to reconnect
+// and receive a mutable.env update to fix ports for all other services.
+func (m *Local) repairExistingNstanceAgentEnv(ctx context.Context, sshPort int, registrationAddr, agentAddr string, quiet bool) error {
+	if err := m.WaitForReadiness(ctx, ReadinessOptions{Quiet: quiet}); err != nil {
+		return err
+	}
+	registrationExpr := "s|^NSTANCE_SERVER_REGISTRATION_ADDR=.*|NSTANCE_SERVER_REGISTRATION_ADDR=" + quoteLocalEnvValue(registrationAddr) + "|"
+	agentExpr := "s|^NSTANCE_SERVER_AGENT_ADDR=.*|NSTANCE_SERVER_AGENT_ADDR=" + quoteLocalEnvValue(agentAddr) + "|"
+	command := fmt.Sprintf(
+		"sudo sed -i -e %s -e %s /opt/env/nstance-agent.env && sudo systemctl restart nstance-agent",
+		quoteLocalEnvValue(registrationExpr),
+		quoteLocalEnvValue(agentExpr),
+	)
+	output, err := m.vm.Shell(ctx, command, sshPort, vm.ShellOptions{Timeout: 30 * time.Second})
+	if err != nil {
+		return fmt.Errorf("restart nstance-agent with current endpoints: %w: %s", err, string(output))
+	}
+	return nil
 }
 
 var localUserdataInstanceIDPattern = regexp.MustCompile(`(?m)^INSTANCE_ID='([^']+)'$`)
@@ -360,14 +488,54 @@ func (m *Local) existingInstanceID(clusterID string) string {
 	return string(match[1])
 }
 
+// getSeedConfig returns cluster.seed from an existing local cluster config.
+func (m *Local) getSeedConfig(clusterID string) (clusterconfig.Seed, error) {
+	path := ClusterConfigPath(m.dataDir, clusterID)
+	cfg, err := clusterconfig.Load(path)
+	if err != nil {
+		return clusterconfig.Seed{}, fmt.Errorf("read existing local cluster config: %w", err)
+	}
+	seed := cfg.Cluster.Seed
+	if seed.Name == "" {
+		return clusterconfig.Seed{Name: seeds.None}, nil
+	}
+	seed.Name, err = seeds.ParseName(seed.Name)
+	if err != nil {
+		return clusterconfig.Seed{}, fmt.Errorf("read existing cluster.seed.name: %w", err)
+	}
+	if seed.Name != seeds.None && seed.Version == "" {
+		return clusterconfig.Seed{}, fmt.Errorf("read existing cluster.seed.version: is required")
+	}
+	return seed, nil
+}
+
 // WriteLocalClusterConfig writes a JSONC cluster config to
 // <dataDir>/local/<clusterID>/cluster.jsonc and returns its absolute path. It
 // describes how the host CLI can reach the local cluster's OIDC issuer and
 // (eventually) Kubernetes API.
-func (m *Local) WriteLocalClusterConfig(clusterID, oidcIssuerURL, oidcCACertPath, apiHostname string, apiPort int) (string, error) {
+func (m *Local) WriteLocalClusterConfig(clusterID, oidcIssuerURL, oidcCACertPath, apiHostname string, apiPort int, seed clusterconfig.Seed) (string, error) {
 	dir := ClusterDataDir(m.dataDir, clusterID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create %s: %w", dir, err)
+	}
+	var err error
+	seed.Name, err = seeds.ParseName(seed.Name)
+	if err != nil {
+		return "", fmt.Errorf("invalid cluster.seed.name: %w", err)
+	}
+	if seed.Name == seeds.None {
+		seed.Version = ""
+	} else if seed.Version == "" {
+		return "", fmt.Errorf("invalid cluster.seed.version: is required")
+	}
+	seedBlock := `    "seed": {}
+`
+	if seed.Name != seeds.None {
+		seedBlock = fmt.Sprintf(`    "seed": {
+      "name": %q,
+      "version": %q
+    }
+`, seed.Name, seed.Version)
 	}
 	path := ClusterConfigPath(m.dataDir, clusterID)
 	contents := fmt.Sprintf(`{
@@ -394,12 +562,10 @@ func (m *Local) WriteLocalClusterConfig(clusterID, oidcIssuerURL, oidcCACertPath
       "api_hostname": %q,
       "api_port": %d
     },
-    "components": {
-      "addons": []
-    }
+%s
   }
 }
-`, clusterID, clusterID, "local-"+clusterID, oidcIssuerURL, clusterID, oidcCACertPath, clusterID+".localhost", apiHostname, apiPort)
+`, clusterID, clusterID, "local-"+clusterID, oidcIssuerURL, clusterID, oidcCACertPath, clusterID+".localhost", apiHostname, apiPort, seedBlock)
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		return "", fmt.Errorf("write %s: %w", path, err)
 	}

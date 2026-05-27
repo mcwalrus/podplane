@@ -24,7 +24,7 @@ func (m *Local) Delete() error {
 	if err := m.deleteClusterData(); err != nil {
 		return err
 	}
-	color.Green("✅ VM deleted successfully")
+	color.Green("✓ VM deleted successfully")
 	return nil
 }
 
@@ -47,14 +47,13 @@ func (m *Local) deleteClusterData() error {
 // derived from the local cluster ID. Cache-backed buckets are intentionally
 // preserved.
 func (m *Local) deleteLocalS3ClusterData() error {
-	s3Dir := filepath.Join(m.dataDir, "s3")
 	for _, bucket := range []string{
-		fmt.Sprintf("%s-netsy", m.clusterID),
-		fmt.Sprintf("%s-telemetry", m.clusterID),
+		localNetsyBucketName(m.clusterID),
+		localTelemetryBucketName(m.clusterID),
 	} {
 		for _, path := range []string{
-			filepath.Join(s3Dir, "buckets", bucket),
-			filepath.Join(s3Dir, "metadata", bucket),
+			localS3BucketDir(m.dataDir, bucket),
+			localS3MetadataDir(m.dataDir, bucket),
 		} {
 			if err := os.RemoveAll(path); err != nil {
 				return fmt.Errorf("remove fake s3 cluster data: %w", err)

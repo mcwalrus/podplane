@@ -6,7 +6,7 @@ description: "Deploy an app using a template"
 
 ## Overview
 
-Deploys an app to the cluster using a template such as `web` or `worker`. The CLI will prompt to install addon components if the template has required dependencies which are not installed.
+Deploys an app to the cluster using a template such as `web` or `worker`. The CLI will prompt to install addon components if the template has required dependencies which are not installed - pass `-y` / `--auto-approve` to skip the prompt.
 
 To update an existing app (e.g. to deploy a new image version), re-run this command with the same `--name`.
 
@@ -14,7 +14,18 @@ To update an existing app (e.g. to deploy a new image version), re-run this comm
 podplane deploy <template> --name <name> --image <image> [flags]
 ```
 
-Under the hood this runs `helm upgrade --install`.
+Under the hood this resolves the template from the local dependency cache and runs `helm upgrade --install`. If the template chart is not cached, the command first runs the same download path used by `podplane deps download`.
+
+Environment variables can be passed with Docker-style `-e` / `--env` flags. Use `KEY=value` to pass an explicit value, or `KEY` to read the value from the local environment. Repeating the flag sets multiple variables; if the same key is provided more than once, the last value wins.
+
+```bash
+podplane deploy web --name hello --image ghcr.io/podplane/hello:latest \
+  -e HELLO_MESSAGE="G'Day World!"
+```
+
+Environment variable names must use Kubernetes-compatible names such as `HELLO_MESSAGE`. These values are stored in the rendered Deployment and Helm release metadata, so use them for non-secret configuration only.
+
+`--hostname` and `--path` are ergonomic shortcuts for template routing values (`route.hostname` and `route.path`). If the selected template's `values.schema.json` does not support those values, deploy fails before running Helm. Other template-specific values should be configured with Helm-compatible `--set`, for example `--set app.port=8080`.
 
 ## Options
 
@@ -22,5 +33,10 @@ Under the hood this runs `helm upgrade --install`.
 | --- | --- |
 | `--name string` | Name of the app deployment (required) |
 | `--image string` | Container image to deploy (required) |
-| `--context string` | The name of the kubeconfig context to use |
+| `-e, --env stringArray` | Set an environment variable on the app container. Use `KEY=value` or `KEY` to read from the local environment. May be specified multiple times. |
+| `--hostname string` | External hostname for routing, when supported by the template |
+| `--path string` | URL path prefix for routing, when supported by the template |
+| `--set stringArray` | Set a template value using Helm `--set` syntax. May be specified multiple times. |
+| `--context string` | The name of the kubeconfig context to use (default: current kubeconfig context) |
 | `--kubeconfig string` | Path to the kubeconfig file (default: `$KUBECONFIG` or `~/.kube/config`) |
+| `-y, --auto-approve` | Skip confirmation prompts |

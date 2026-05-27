@@ -5,6 +5,7 @@
 package deps
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -28,7 +29,7 @@ func TestDownloadDownloadsArtifactsInParallel(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/components/manifests/components.json":
+		case "/manifests/components.json":
 			componentsManifestFetched.Store(true)
 			manifest := ComponentsManifest{
 				Components: Components{
@@ -39,7 +40,17 @@ func TestDownloadDownloadsArtifactsInParallel(t *testing.T) {
 			if err := json.NewEncoder(w).Encode(manifest); err != nil {
 				t.Errorf("encode components manifest: %v", err)
 			}
-		case "/vmconfig/manifests/knc.debian-13.arm64.json":
+		case "/manifests/templates.json":
+			manifest := TemplatesManifest{Templates: Templates{Version: "test", Charts: []TemplateChart{}}}
+			if err := json.NewEncoder(w).Encode(manifest); err != nil {
+				t.Errorf("encode templates manifest: %v", err)
+			}
+		case "/manifests/seeds.json":
+			manifest := SeedsManifest{Seeds: Seeds{Version: "test", Snapshots: map[string]SeedSnapshot{}}}
+			if err := json.NewEncoder(w).Encode(manifest); err != nil {
+				t.Errorf("encode seeds manifest: %v", err)
+			}
+		case "/manifests/vmconfig_knc_debian-13_arm64.json":
 			manifest := Manifest{VMConfig: VMConfig{
 				Version: "test",
 				Kind:    DefaultKind,
@@ -135,7 +146,7 @@ func TestDownloadUsesLocalManifestFile(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/components/manifests/components.json":
+		case "/manifests/components.json":
 			manifest := ComponentsManifest{
 				Components: Components{
 					Version: "test",
@@ -145,7 +156,17 @@ func TestDownloadUsesLocalManifestFile(t *testing.T) {
 			if err := json.NewEncoder(w).Encode(manifest); err != nil {
 				t.Errorf("encode components manifest: %v", err)
 			}
-		case "/vmconfig/manifests/knc.debian-13.arm64.json":
+		case "/manifests/templates.json":
+			manifest := TemplatesManifest{Templates: Templates{Version: "test", Charts: []TemplateChart{}}}
+			if err := json.NewEncoder(w).Encode(manifest); err != nil {
+				t.Errorf("encode templates manifest: %v", err)
+			}
+		case "/manifests/seeds.json":
+			manifest := SeedsManifest{Seeds: Seeds{Version: "test", Snapshots: map[string]SeedSnapshot{}}}
+			if err := json.NewEncoder(w).Encode(manifest); err != nil {
+				t.Errorf("encode seeds manifest: %v", err)
+			}
+		case "/manifests/vmconfig_knc_debian-13_arm64.json":
 			manifestRequested.Store(true)
 			http.Error(w, "remote manifest should not be requested", http.StatusInternalServerError)
 		case "/image":
@@ -233,6 +254,44 @@ func TestDownloadUsesLocalManifestFile(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cacheDir, "vmconfig", "artifacts", VMConfigDepName, "dev")); !os.IsNotExist(err) {
 		t.Fatalf("vmconfig stub should not be cached, stat err = %v", err)
+	}
+}
+
+func TestFetchTemplatesManifestRetriesTransientFailures(t *testing.T) {
+	oldDelays := dependencyManifestRetryDelays
+	dependencyManifestRetryDelays = []time.Duration{0, 0, 0}
+	t.Cleanup(func() {
+		dependencyManifestRetryDelays = oldDelays
+	})
+
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/manifests/templates.json" {
+			http.NotFound(w, r)
+			return
+		}
+		attempt := atomic.AddInt32(&attempts, 1)
+		if attempt < 4 {
+			http.Error(w, "temporary upstream failure", http.StatusBadGateway)
+			return
+		}
+		manifest := TemplatesManifest{Templates: Templates{Version: "test", Charts: []TemplateChart{}}}
+		if err := json.NewEncoder(w).Encode(manifest); err != nil {
+			t.Errorf("encode templates manifest: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	manager := NewManager(server.URL, t.TempDir())
+	manifest, err := manager.fetchTemplatesManifest(context.Background(), server.Client())
+	if err != nil {
+		t.Fatalf("fetchTemplatesManifest returned error: %v", err)
+	}
+	if manifest.Templates.Version != "test" {
+		t.Fatalf("templates manifest version = %q, want test", manifest.Templates.Version)
+	}
+	if got := atomic.LoadInt32(&attempts); got != 4 {
+		t.Fatalf("attempts = %d, want 4", got)
 	}
 }
 
@@ -369,7 +428,7 @@ func TestDownloadRejectsRemoteManifestWithUnreleasedVMConfigStub(t *testing.T) {
 	imageBody := []byte("image artifact")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/vmconfig/manifests/knc.debian-13.arm64.json":
+		case "/manifests/vmconfig_knc_debian-13_arm64.json":
 			manifest := Manifest{VMConfig: VMConfig{
 				Version: "test",
 				Kind:    DefaultKind,

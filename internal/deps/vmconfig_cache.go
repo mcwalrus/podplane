@@ -16,10 +16,10 @@ import (
 	"time"
 )
 
-// manifestFilename returns the manifest filename used both as part of the
-// remote URL path and the local cache path, e.g. "knc.debian-13.arm64.json".
+// manifestFilename returns the canonical vmconfig manifest filename, e.g.
+// "vmconfig_knc_debian-13_arm64.json".
 func manifestFilename(kind, arch string) string {
-	return fmt.Sprintf("%s.%s.%s.json", kind, OS, arch)
+	return fmt.Sprintf("vmconfig_%s_%s_%s.json", kind, OS, arch)
 }
 
 // manifestName returns the manifest filename without its .json suffix.
@@ -43,7 +43,8 @@ func (m *Manager) VMConfigArtifactsCacheDir() string {
 }
 
 // VMConfigManifestCachePath returns the path to the cached vmconfig manifest
-// JSON file, e.g. ~/.podplane/cache/deps/vmconfig/manifests/knc.debian-13.arm64.json.
+// JSON file, e.g.
+// ~/.podplane/cache/deps/vmconfig/manifests/vmconfig_knc_debian-13_arm64.json.
 func (m *Manager) VMConfigManifestCachePath(kind, arch string) string {
 	return filepath.Join(m.VMConfigManifestCacheDir(), manifestFilename(kind, arch))
 }
@@ -99,5 +100,5 @@ func (m *Manager) WriteCachedManifest(kind, arch string, raw []byte) error {
 // historicalManifestFilename returns a timestamped content-addressed manifest filename.
 func historicalManifestFilename(name string, raw []byte) string {
 	sum := sha256.Sum256(raw)
-	return fmt.Sprintf("%s-%s-%s.json", name, time.Now().UTC().Format("20060102T150405Z"), hex.EncodeToString(sum[:])[:12])
+	return fmt.Sprintf("%s_%s_%s.json", name, time.Now().UTC().Format("20060102T150405Z"), hex.EncodeToString(sum[:])[:12])
 }

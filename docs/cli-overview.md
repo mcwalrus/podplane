@@ -30,9 +30,26 @@ Each CLI command group is summarised below.
 
 ## Config Files & Context
 
-Many commands require either a cluster config file, or OIDC config file.
+Podplane commands use different config/context sources depending on the command:
 
-- For example, `podplane login` will require a cluster config file, and `podplane oidc delete` will require an oidc config file.
+- __Cluster Config__
+  Flags: `-f` / `--cluster-config`, default `./podplane.cluster.jsonc`
+  For Commands: `cluster *`, `login`
+
+- __OIDC Server Config__
+  Flags: `-f` / `--oidc-config`, default `./podplane.oidc.jsonc`
+  For Commands: `oidc *`
+
+- __Kubernetes Context__ 
+  Flags: `--context` / `--kubeconfig`, default `kubectl config current-contex`
+  For Commands: `deploy`, `remove`, `install`, `uninstall`, `logout`.
+  Exceptions:
+  - `logout` optionally also accepts `--cluster` or `-f` / `--cluster-config`
+
+- __No Context/Not Applicable__
+  For Commands: `local *`, `deps *`, `version`, `completion`, `help`
+  Exceptions:
+  - `deps download` optionally accepts `--cluster-config` for auto-detecting providers
 
 The CLI uses the current working directory to find the relevant `podplane.cluster.jsonc` or `podplane.oidc.jsonc` config file. See [Config Reference](config-reference.md) for the full file format documentation.
 
@@ -73,12 +90,12 @@ See [CLI Storage](cli-storage.md) for more details about these files and how the
 ### `cluster` commands
 
 - `create` generates or reads a cluster config file, generates infra-as-code files, and (for AWS/Google Cloud) deploys the cluster via OpenTofu/Terraform
-- `delete` for (on AWS/Google Cloud) removing deployed infrastructure and deleting generated files created by `create`.
+- `delete` removes deployed infrastructure and leaves config and generated `.tf` files in place.
 
 ### `oidc` commands
 
 - `create` generates or reads an OIDC config file, generates infra-as-code files, and (for AWS/Google Cloud) deploys the OIDC via OpenTofu/Terraform
-- `delete` for (on AWS/Google Cloud) removing deployed infrastructure and deleting generated files created by `create`.
+- `delete` removes deployed infrastructure and leaves config and generated `.tf` files in place.
 
 ### authentication commands
 
@@ -88,13 +105,12 @@ See [CLI Storage](cli-storage.md) for more details about these files and how the
 ### `hooks` commands
 
 - `kubectl-auth` to be used as a kubectl exec auth plugin
-- `netsy-init` to generate an initial Netsy snapshot file from a template; called by the Podplane Terraform/OpenTofu providers (one binary for AWS, one for Google Cloud) during cluster creation
 
 ### app commands
 
 These commands help you deploy workloads using templates such as the `web` or `worker` app template.
 
-- `deploy <template> --name <name> --image <image>` deploy an app using a template. The CLI will prompt to install addon components if they have required dependencies which are not installed.
+- `deploy <template> --name <name> --image <image> [-e KEY=value]` deploy an app using a template. The CLI will prompt to install addon components if they have required dependencies which are not installed. Repeat `-e` / `--env` to set non-secret environment variables on the app container.
 - `remove <template> --name <name>` remove a previously deployed app.
 - `logs <name>` tail logs for a deployed app.
 

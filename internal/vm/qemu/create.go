@@ -7,6 +7,7 @@ package qemu
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -40,14 +41,15 @@ func (m *Qemu) Create(baseImage string) error {
 	}
 
 	// Create the VM image
-	fmt.Println("Creating VM image...")
+	output := m.output
+	fmt.Fprintln(output, "Creating VM image...")
 	cmd := execwrap.Command("qemu-img", "create", "-F", "qcow2", "-b", baseImage, "-f", "qcow2", vmImage, "128G")
 	var errBuf bytes.Buffer
-	cmd.Stdout = nil
+	cmd.Stdout = io.Discard
 	cmd.Stderr = &errBuf
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("qemu-img create failed: %w\n%s", err, errBuf.String())
 	}
-	color.Green("✅ VM image created successfully")
+	_, _ = color.New(color.FgGreen).Fprintln(output, "✓ VM image created successfully")
 	return nil
 }

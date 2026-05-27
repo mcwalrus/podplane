@@ -62,13 +62,14 @@ func (m *Qemu) Start(userData, cpus, memory, sshAuthorizedKey string, monitor bo
 	_ = os.Remove(serialConsolePath)
 
 	// Start the VM
-	fmt.Println("Starting VM...")
+	output := m.output
+	fmt.Fprintln(output, "Starting VM...")
 	cmd := execwrap.Command(
 		QemuBinary(m.arch),
 		QemuArguments(monitor, m.arch, vmImage, cloudInitDataISO, serialConsolePath, cpus, memory, boot, ports)...,
 	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = output
+	cmd.Stderr = output
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start VM: %w", err)
 	}

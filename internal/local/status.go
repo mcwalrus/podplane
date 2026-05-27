@@ -5,10 +5,28 @@
 package local
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/fatih/color"
 )
+
+// Running reports whether the local cluster VM currently exists and is running.
+func (m *Local) Running() (bool, error) {
+	exists, err := m.vm.Exists()
+	if err != nil {
+		return false, err
+	}
+	if !exists {
+		return false, nil
+	}
+	return m.vm.Running()
+}
+
+// Exists reports whether the local cluster VM has already been created.
+func (m *Local) Exists() (bool, error) {
+	return m.vm.Exists()
+}
 
 // Status checks and displays the status of the local cluster VM
 func (m *Local) Status() error {
@@ -18,6 +36,7 @@ func (m *Local) Status() error {
 		return err
 	}
 
+	vmRunning := false
 	if !exists {
 		color.Red("VM Status: Not created")
 	} else {
@@ -26,6 +45,7 @@ func (m *Local) Status() error {
 		if err != nil {
 			return err
 		}
+		vmRunning = running
 
 		// Display status
 		if running {
@@ -36,6 +56,30 @@ func (m *Local) Status() error {
 			}
 		} else {
 			color.Yellow("VM Status: Stopped")
+		}
+	}
+
+	if vmRunning {
+		ctx := context.Background()
+		if state, err := m.ProbeCloudInit(ctx); err != nil {
+			color.Red(fmt.Sprintf("Cloud-init: unavailable (%v)", err))
+		} else {
+			switch state {
+			case "done":
+				color.Green("Cloud-init: done")
+			case "error":
+				color.Red("Cloud-init: error")
+			default:
+				color.Yellow(fmt.Sprintf("Cloud-init: %s", state))
+			}
+		}
+		switch {
+		case m.ProbeAPIServerLive(ctx) != nil:
+			color.Yellow("Kubernetes API: not live")
+		case m.ProbeAPIServerReady(ctx) != nil:
+			color.Yellow("Kubernetes API: live, not ready")
+		default:
+			color.Green("Kubernetes API: ready")
 		}
 	}
 

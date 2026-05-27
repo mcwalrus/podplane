@@ -7,6 +7,7 @@ package local
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -40,7 +41,10 @@ func ServerLogPath(runtimeDir string) string {
 // (immediately). Here we just run the command in the background and expect the
 // user will stop the server via the `podplane local stop` or
 // `podplane local server -q` commands.
-func (m *Local) ServerEnsure() error {
+func (m *Local) ServerEnsure(output io.Writer) error {
+	if output == nil {
+		output = os.Stdout
+	}
 	// Check if the server is already running before spawning a new process
 	pidFile, err := ServerPIDFile(m.runtimeDir)
 	if err == nil {
@@ -63,7 +67,7 @@ func (m *Local) ServerEnsure() error {
 		return err
 	}
 	// Start the local server in the background.
-	fmt.Println("Starting local server...")
+	fmt.Fprintln(output, "Starting local server...")
 	logPath := ServerLogPath(m.runtimeDir)
 	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
 		return fmt.Errorf("failed to create local server log directory: %w", err)
@@ -104,10 +108,10 @@ func (m *Local) ServerEnsure() error {
 	if err := cmd.Process.Release(); err != nil {
 		return fmt.Errorf("failed to release local server process: %w (log: %s)", err, logPath)
 	}
-	fmt.Printf("- HTTP port: %s\n", newPidFile.GetData("http_port"))
-	fmt.Printf("- HTTPS port: %s\n", newPidFile.GetData("https_port"))
-	fmt.Printf("- Log: %s\n", logPath)
-	color.Green("✅ Local server started successfully")
+	fmt.Fprintf(output, "- HTTP port: %s\n", newPidFile.GetData("http_port"))
+	fmt.Fprintf(output, "- HTTPS port: %s\n", newPidFile.GetData("https_port"))
+	fmt.Fprintf(output, "- Log: %s\n", logPath)
+	_, _ = color.New(color.FgGreen).Fprintln(output, "✓ Local server started successfully")
 	// Save the PID file into the Local struct and return
 	m.webserverPIDFile = newPidFile
 	return nil

@@ -150,6 +150,16 @@ Good observability separation means:
 - Dashboards and incident history remain available during cluster incidents.
 - Access to observability is managed separately from cluster admin access.
 
+### Identity and OIDC
+
+Clusters need an OIDC issuer for Kubernetes API authentication and authorization / RBAC.
+
+Many organisations will run one OIDC issuer for all cluster environments, including production, staging, development, observability, and CI/CD. That issuer usually belongs in a dedicated identity account/project or in a production-grade account with stricter controls than non-production environments (and often, even stricter than other production environments).
+
+For example, if you are creating a staging cluster and discover that you also need OIDC, avoid casually deploying the an OIDC server into the staging account unless that is a deliberate trust boundary decision.
+
+Podplane can deploy [Easy OIDC](https://easy-oidc.dev) for you with `podplane oidc create`, but you can also bring your own OIDC service, such as [Dex](https://dexidp.io), a corporate identity gateway, or a managed third-party identity provider. The important requirements are that the issuer lets you control which users can authenticate and lets you control which groups appear in the groups claim consumed by Podplane / Kubernetes RBAC.
+
 ## Practical Starting Points
 
 ### Smallest reasonable setup

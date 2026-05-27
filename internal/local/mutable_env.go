@@ -94,17 +94,21 @@ func (l *Local) writeMutableEnvBaseline(clusterID, content string) error {
 	return os.WriteFile(path, []byte(content), 0o600)
 }
 
-// stageMutableEnvIfChanged stages desired through fake Nstance only when it
-// differs from the delivered baseline for this cluster.
-func (l *Local) stageMutableEnvIfChanged(ctx context.Context, store fakeserver.Store, clusterID, instanceID, desired string) error {
+// stageMutableEnvIfChanged stages desired mutable.env through fake Nstance
+// only when it differs from the delivered baseline for this cluster. The
+// returned bool is true when desired was staged for eventual delivery.
+func (l *Local) stageMutableEnvIfChanged(ctx context.Context, store fakeserver.Store, clusterID, instanceID, desired string) (bool, error) {
 	delivered, err := os.ReadFile(l.mutableEnvPath(clusterID))
 	if err == nil && string(delivered) == desired {
-		return nil
+		return false, nil
 	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+		return false, err
 	}
-	return l.stageMutableEnv(ctx, store, clusterID, instanceID, desired)
+	if err := l.stageMutableEnv(ctx, store, clusterID, instanceID, desired); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // stageMutableEnv inserts or replaces mutable.env in the fake Nstance pending

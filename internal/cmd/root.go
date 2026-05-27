@@ -28,6 +28,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
+	cobra.EnableCommandSorting = false
 	pflags := rootCmd.PersistentFlags()
 	pflags.BoolVarP(&flagVerbose, "verbose", "v", false, "Enable verbose output")
 	pflags.Lookup("verbose").NoOptDefVal = "true"
@@ -94,28 +95,53 @@ func NewRootCmd(c *config.Config) *cobra.Command {
 	// Add command groups
 	rootCmd.AddGroup(
 		&cobra.Group{ID: "auth", Title: "Authentication:"},
-		&cobra.Group{ID: "local", Title: "Development:"},
+		&cobra.Group{ID: "dev", Title: "Development:"},
+		&cobra.Group{ID: "local", Title: "Local Clusters:"},
+		&cobra.Group{ID: "infra", Title: "Infrastructure:"},
 	)
 
-	// Add subcommands to groups
+	// Add subcommands to Auth group
 	loginCmd := newLoginCmd(c)
 	loginCmd.GroupID = "auth"
 	rootCmd.AddCommand(loginCmd)
-
 	logoutCmd := newLogoutCmd(c)
 	logoutCmd.GroupID = "auth"
 	rootCmd.AddCommand(logoutCmd)
 
+	// Add subcommands to Dev group
+	deployCmd := newDeployCmd(c)
+	deployCmd.GroupID = "dev"
+	rootCmd.AddCommand(deployCmd)
+	removeCmd := newRemoveCmd(c)
+	removeCmd.GroupID = "dev"
+	rootCmd.AddCommand(removeCmd)
+
+	// Add subcommands to Local group
 	localCmd := newLocalCmd(c)
 	localCmd.GroupID = "local"
 	rootCmd.AddCommand(localCmd)
-
 	depsCmd := newDepsCmd(c)
 	depsCmd.GroupID = "local"
 	rootCmd.AddCommand(depsCmd)
 
+	// Add subcommands to Infra group
+	oidcCmd := newOIDCCmd(c)
+	oidcCmd.GroupID = "infra"
+	rootCmd.AddCommand(oidcCmd)
+	clusterCmd := newClusterCmd(c)
+	clusterCmd.GroupID = "infra"
+	rootCmd.AddCommand(clusterCmd)
+	installCmd := newInstallCmd(c)
+	installCmd.GroupID = "infra"
+	rootCmd.AddCommand(installCmd)
+	uninstallCmd := newUninstallCmd(c)
+	uninstallCmd.GroupID = "infra"
+	rootCmd.AddCommand(uninstallCmd)
+
 	// Add ungrouped subcommands
-	rootCmd.AddCommand(newHooksCmd(c))
+	hooksCmd := newHooksCmd(c)
+	hooksCmd.Hidden = true
+	rootCmd.AddCommand(hooksCmd)
 	rootCmd.AddCommand(newVersionCmd())
 
 	return rootCmd

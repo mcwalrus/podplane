@@ -25,13 +25,18 @@ type Cluster struct {
 	Pools      map[string]Pool `json:"pools,omitempty"`
 	Providers  []Provider      `json:"providers,omitempty"`
 	Kubernetes Kubernetes      `json:"kubernetes"`
+	Seed       Seed            `json:"seed,omitempty"`
 	Components Components      `json:"components,omitempty"`
 }
 
-// Components describes user-selected addon components and the Git source used
-// by the platform-components chart to reconcile component Helm charts.
+// Seed describes the Podplane seed file used to create the initial Netsy snapshot.
+type Seed struct {
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+}
+
+// Components describes optional platform-components configuration.
 type Components struct {
-	Addons []string          `json:"addons,omitempty"`
 	Source *ComponentsSource `json:"source,omitempty"`
 }
 

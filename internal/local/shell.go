@@ -7,6 +7,7 @@ package local
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/podplane/podplane/internal/vm"
 )
@@ -23,6 +24,11 @@ func (m *Local) Shell(command string) error {
 	if sshPort == 0 {
 		return fmt.Errorf("state is missing ssh port")
 	}
-	_, err = m.vm.Shell(context.Background(), command, sshPort, vm.ShellOptions{})
+	opts := vm.ShellOptions{}
+	if command != "" {
+		opts.Stdout = os.Stdout
+		opts.Stderr = os.Stderr
+	}
+	_, err = m.vm.Shell(context.Background(), command, sshPort, opts)
 	return err
 }

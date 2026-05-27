@@ -39,6 +39,10 @@ type Manager interface {
 	// HostAddr returns the address to the host machine from the guest machine
 	Addr() string
 
+	// SetOutput sets where user-facing lifecycle messages and child process
+	// output are written.
+	SetOutput(output io.Writer)
+
 	// Create creates a new VM instance using the given base image path.
 	// The base image is sourced from the deps cache (managed by the
 	// internal/deps package).

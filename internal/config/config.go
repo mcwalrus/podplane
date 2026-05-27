@@ -34,7 +34,7 @@ func Init() (*Config, error) {
 // runtimeConfig defines the config variables, validation, and viper config
 type runtimeConfig struct {
 	Verbose       bool   `viper:"verbose" envkey:"PODPLANE_DEBUG" default:"false" json:"-" description:"Enable verbose output"`
-	DepsBaseURL   string `viper:"deps_base_url" envkey:"PODPLANE_DEPS_BASE_URL" default:"https://cli.podplane.dev/deps" json:"-" description:"Override the base URL for the vmconfig and components manifests"`
+	DepsBaseURL   string `viper:"deps_base_url" envkey:"PODPLANE_DEPS_BASE_URL" default:"https://cli.podplane.dev/deps" json:"-" description:"Override the base URL for dependency manifests"`
 	DepsCacheDir  string `viper:"deps_cache_dir" envkey:"PODPLANE_DEPS_CACHE_DIR" default:"" json:"-" description:"Override the directory to cache dependency files. Empty value defaults to CACHE_DIR/deps e.g. ~/.podplane/cache/deps"`
 	Arch          string `viper:"arch" envkey:"PODPLANE_ARCH" default:"" json:"-" description:"Override the target architecture (arm64 or amd64). Empty value auto-detects from runtime.GOARCH."`
 	ApiURL        string `viper:"api_url" envkey:"PODPLANE_API_URL" default:"https://api.podplane.dev" json:"-" description:"Override the Podplane API URL"`
@@ -71,7 +71,7 @@ func (c *Config) OIDCIssuerURL() string {
 	return viper.GetString("oidc_issuer_url")
 }
 
-// DepsBaseURL returns the base URL used to fetch the vmconfig manifest.
+// DepsBaseURL returns the base URL used to fetch dependency manifests.
 func (c *Config) DepsBaseURL() string {
 	url := viper.GetString("deps_base_url")
 	if url != "" {

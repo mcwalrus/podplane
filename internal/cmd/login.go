@@ -88,7 +88,7 @@ matching cluster, user and context.`,
 			if user == "" {
 				user = meta.Sub
 			}
-			fmt.Printf("✅ Logged in to cluster %q as %s\n", cluster.Cluster.ID, user)
+			fmt.Printf("✓ Logged in to cluster %q as %s\n", cluster.Cluster.ID, user)
 			return nil
 		},
 	}

@@ -11,11 +11,8 @@ import (
 
 func TestComponentsUnmarshalObject(t *testing.T) {
 	var cfg ClusterConfig
-	if err := json.Unmarshal([]byte(`{"cluster":{"components":{"addons":["traefik"],"source":{"url":"https://github.com/example/components.git","ref":{"branch":"feature"}}}}}`), &cfg); err != nil {
+	if err := json.Unmarshal([]byte(`{"cluster":{"components":{"source":{"url":"https://github.com/example/components.git","ref":{"branch":"feature"}}}}}`), &cfg); err != nil {
 		t.Fatalf("Unmarshal returned error: %v", err)
-	}
-	if got, want := cfg.Cluster.Components.Addons, []string{"traefik"}; len(got) != len(want) || got[0] != want[0] {
-		t.Fatalf("components.addons = %v, want %v", got, want)
 	}
 	if got, want := cfg.Cluster.Components.Source.URL, "https://github.com/example/components.git"; got != want {
 		t.Fatalf("components.source.url = %q, want %q", got, want)

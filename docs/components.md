@@ -31,22 +31,24 @@ Components are deployed with an opinionated, tested configuration - not the full
     - `fluxcd-crds` for Flux CD
 - `gateway-api-crds` for any ingress controller using Gateway API, particularly Traefik
 - `platform-components` for Podplane component management. This chart creates the Flux source, platform namespaces, and HelmReleases for enabled components.
-- `platform-certs` for default self-signed and ACME certificate issuers, CA, certificates, etc.
-- `platform-trust` for default trust bundles (enabled when trust-manager is installed)
 - `platform-rbac` for default Podplane platform RBAC and admission policies
 
 ### Addon Components
 
 Recommended components which can also be installed via `podplane install` atop the Minimal set:
 
+- `agent-sandbox`: [Agent Sandbox](https://agent-sandbox.sigs.k8s.io/) controller for isolated, stateful singleton workloads such as AI agent runtimes
+    - `agent-sandbox-crds`
 - `cluster-api` for the [Cluster API](https://cluster-api.sigs.k8s.io/) core controller
     - `cluster-api-crds`
 - `nstance` for the [Nstance Operator](https://nstance.dev/docs/components/nstance-operator/) (requires `cluster-api`)
     - `nstance-crds`
 - `cert-manager`: [cert-manager](https://cert-manager.io/docs/) and [cert-manager-csi-driver](https://cert-manager.io/docs/usage/csi-driver/)
     - `cert-manager-crds`
+- `platform-certs` for default self-signed and ACME certificate issuers, CA, certificates, etc. (requires `cert-manager`)
 - `trust-manager`: [trust-manager](https://cert-manager.io/docs/trust/trust-manager/) by the cert-manager project
     - `trust-manager-crds`
+- `platform-trust` for default trust bundles (requires `trust-manager`)
 - `traefik`: [Traefik](https://doc.traefik.io/traefik/) ingress controller
 
 Addon components which can only be installed via `podplane install`:
@@ -65,13 +67,13 @@ Addon components which can only be installed via `podplane install`:
 
 ### Cluster State Initialization
 
-Cluster state is initialised via a Podplane provider for OpenTofu/Terraform (one binary for AWS, one for Google Cloud).
+Cluster state is initialised via the Podplane provider for OpenTofu/Terraform.
 
-The provider invokes [`podplane hooks netsy-init`](cli-reference/hooks-netsy-init.md) to download and interpolate a Netsy state template with cluster-specific settings, then uploads the resulting snapshot to provider-specific object storage (S3 for AWS, GCS for Google Cloud). Before uploading, the provider checks that the first Netsy snapshot does not already exist, then performs a conditional put to create it - ensuring it can never overwrite a real snapshot by mistake.
+The provider uses Podplane seed files to create a Netsy `bootstrap.netsy` snapshot file, then uploads it to provider-specific object storage (S3 for AWS, GCS for Google Cloud). Before uploading, the provider checks that remote state does not already exist and performs a conditional put so it can never overwrite it by mistake. Netsy also has checks to ensure a bootstrap file is never loaded over existing cluster state.
 
-The **Recommended** and **Minimal** options each have their own template files. The CLI interpolates these with cluster-specific settings - name/slug, network configuration (IPv6 enabled, cluster CIDR, services CIDR), etc. Template interpolation lives in the CLI (rather than the provider) because the CLI also uses it when creating local clusters via `podplane local start`.
+The `Recommended` and `Minimal` options each have their own Podplane seed files. The `None` option skips cluster seeding entirely.
 
-The **None** option skips component initialization entirely.
+See [Seeds](seeds.md) for how seed files, the seeds manifest, the `seedgen` seed generator utility, and the Terraform provider fit together.
 
 ### The Platform Component
 

@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// SelectList asks the user to choose one item from a terminal list.
 func SelectList(action string, title string, items []list.Item) (string, bool, error) {
 	l := list.New(items, itemDelegate{}, listWidth, listHeight)
 	l.Title = title
@@ -37,12 +38,14 @@ func SelectList(action string, title string, items []list.Item) (string, bool, e
 const listWidth = 20
 const listHeight = 14
 
+// Item is one selectable list entry.
 type Item struct {
 	Key    string
 	Label  string
 	Cancel bool
 }
 
+// FilterValue returns the searchable value for the list item.
 func (i Item) FilterValue() string { return "" }
 
 type itemDelegate struct{}

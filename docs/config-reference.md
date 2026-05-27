@@ -103,11 +103,11 @@ This file is the user-facing projection of cluster configuration. It is created 
       "cluster_cidr": ["100.64.0.0/10", "fd64::/48"],
       "service_cidr": ["198.18.0.0/15", "fdc6::/108"]
     },
+    "seed": {
+      "name": "recommended",
+      "version": "v1.2.3-1"
+    },
     "components": {
-      "addons": [
-        "traefik",
-        "cert-manager"
-      ],
       "source": {
         "url": "https://github.com/podplane/components.git",
         "ref": {
@@ -176,7 +176,8 @@ This file is the user-facing projection of cluster configuration. It is created 
 | `cluster.kubernetes.api_port` | Port for the kube-apiserver (default: `6443`) |
 | `cluster.kubernetes.cluster_cidr` | CIDR ranges for Pod IPs, joined with commas for kube-controller-manager `--cluster-cidr` |
 | `cluster.kubernetes.service_cidr` | CIDR ranges for Service ClusterIPs, joined with commas for kube-apiserver `--service-cluster-ip-range` |
-| `cluster.components.addons` | Which addon components are enabled (e.g. `traefik`, `cert-manager`) |
+| `cluster.seed.name` | Podplane seed file to use when creating the Netsy bootstrap file - `recommended`, `minimal`, or `none`. Leave `cluster.seed` as an empty object to seed no platform-components state, leaving a bare cluster that must be bootstrapped manually. |
+| `cluster.seed.version` | Podplane seeds release version used for the selected seed file, e.g. `v1.2.3-1`. Generated configs pin this to the known available seed version. Omit inside an empty `cluster.seed` object. |
 | `cluster.components.source.url` | Git repository URL used by `platform-components` as the source for component Helm charts. Defaults to the published Podplane components repository when omitted. |
 | `cluster.components.source.ref.branch` | Git branch to use for component Helm charts. |
 | `cluster.components.source.ref.tag` | Git tag to use for component Helm charts. Mutually exclusive with other `source.ref` selectors. |

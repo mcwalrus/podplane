@@ -48,32 +48,21 @@ func configureLocalNstance(ctx context.Context, dataDir, clusterID, instanceID, 
 	if err != nil {
 		return nstanceAgentUserData{}, fmt.Errorf("prepare local service account keys: %w", err)
 	}
-	// ConfigureInstance persists the fake Nstance instance and registration nonce.
-	// InstanceEnvWithAddrs renders agent env vars using addresses published
-	// by the already-running background local server.
-	if err := server.ConfigureInstance(ctx, fakeserver.InstanceRequest{
-		TenantID:     clusterID,
-		InstanceID:   instanceID,
-		InstanceKind: instanceKind,
-	}); err != nil {
-		return nstanceAgentUserData{}, fmt.Errorf("configure fake nstance instance: %w", err)
-	}
-	instanceEnv, err := server.InstanceEnvWithAddrs(ctx, instanceID, fakeserver.ServerAddrs{
-		RegistrationAddr: registrationAddr,
-		AgentAddr:        agentAddr,
-	})
+
+	// Fetch the fake Nstance CA before configuring the tenant so the tenant's
+	// runtime files (which include ca.crt) match what the agent will receive.
+	// This keeps the runtime config hash that fakeserver embeds in the
+	// registration nonce consistent with the files actually delivered.
+	nstanceCACertPEM, err := server.CACert(ctx)
 	if err != nil {
-		return nstanceAgentUserData{}, fmt.Errorf("render fake nstance instance env: %w", err)
+		return nstanceAgentUserData{}, fmt.Errorf("load fake nstance CA certificate: %w", err)
 	}
-	nstanceCACert := instanceEnv.Vars["NSTANCE_CA_CERT"]
-	nstanceNonceJWT := instanceEnv.Vars["NSTANCE_REGISTRATION_NONCE_JWT"]
-	nstanceCACertPEM, err := base64.StdEncoding.DecodeString(nstanceCACert)
-	if err != nil {
-		return nstanceAgentUserData{}, fmt.Errorf("decode fake nstance CA certificate: %w", err)
-	}
+	nstanceCACert := base64.StdEncoding.EncodeToString(nstanceCACertPEM)
 
 	// Local maps each Podplane cluster to one fake Nstance tenant. Static files
-	// here use normal Nstance string-file semantics.
+	// here use normal Nstance string-file semantics. Configure the tenant
+	// first so ConfigureInstance can embed the tenant's runtime config hash in
+	// the registration nonce, matching real Nstance server behavior.
 	tenantConfig := podplaneRuntimeConfig(clusterID, map[string]string{
 		"ca.pub":               "",
 		"ca.crt":               string(nstanceCACertPEM),
@@ -84,6 +73,34 @@ func configureLocalNstance(ctx context.Context, dataDir, clusterID, instanceID, 
 	if err := server.ConfigureTenant(ctx, tenantConfig); err != nil {
 		return nstanceAgentUserData{}, fmt.Errorf("configure fake nstance tenant: %w", err)
 	}
+
+	// ConfigureInstance persists the fake Nstance instance and registration nonce.
+	// Only do this before the first registration. After an existing local VM has
+	// registered, fake Nstance has authoritative hostname/IP values reported by
+	// nstance-agent; overwriting the instance on a later `local start` would erase
+	// those dynamic values even though the VM will not re-register.
+	// InstanceEnvWithAddrs renders agent env vars using addresses published
+	// by the already-running background local server.
+	instanceKey := filepath.ToSlash(filepath.Join("fakeserver", "instances", instanceID, "instance.json"))
+	if _, err := store.Get(ctx, instanceKey); errors.Is(err, fakeserver.ErrNotFound) {
+		if err := server.ConfigureInstance(ctx, fakeserver.InstanceRequest{
+			TenantID:     clusterID,
+			InstanceID:   instanceID,
+			InstanceKind: instanceKind,
+		}); err != nil {
+			return nstanceAgentUserData{}, fmt.Errorf("configure fake nstance instance: %w", err)
+		}
+	} else if err != nil {
+		return nstanceAgentUserData{}, fmt.Errorf("load fake nstance instance state: %w", err)
+	}
+	instanceEnv, err := server.InstanceEnvWithAddrs(ctx, instanceID, fakeserver.ServerAddrs{
+		RegistrationAddr: registrationAddr,
+		AgentAddr:        agentAddr,
+	})
+	if err != nil {
+		return nstanceAgentUserData{}, fmt.Errorf("render fake nstance instance env: %w", err)
+	}
+	nstanceNonceJWT := instanceEnv.Vars["NSTANCE_REGISTRATION_NONCE_JWT"]
 
 	return nstanceAgentUserData{
 		CACert:                 nstanceCACert,

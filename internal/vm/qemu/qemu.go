@@ -6,6 +6,8 @@ package qemu
 
 import (
 	"fmt"
+	"io"
+	"os"
 
 	"github.com/podplane/podplane/internal/vm"
 )
@@ -34,6 +36,7 @@ type Qemu struct {
 	dataDir    string
 	runtimeDir string
 	VMName     string
+	output     io.Writer
 }
 
 // NewQemu creates a new qemu VM manager from explicit options.
@@ -44,5 +47,15 @@ func NewQemu(opts Options) vm.Manager {
 		dataDir:    opts.DataDir,
 		runtimeDir: opts.RuntimeDir,
 		VMName:     fmt.Sprintf("podplane-local-%s", opts.ClusterID),
+		output:     os.Stdout,
 	}
+}
+
+// SetOutput sets where user-facing qemu lifecycle messages and child process
+// output are written.
+func (m *Qemu) SetOutput(output io.Writer) {
+	if output == nil {
+		output = os.Stdout
+	}
+	m.output = output
 }
