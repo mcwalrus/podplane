@@ -1,0 +1,90 @@
+# Podplane <https://podplane.dev>
+# Copyright 2026 Nadrama Pty Ltd
+# SPDX-License-Identifier: Apache-2.0
+
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+
+version: 2
+
+project_name: podplane
+
+before:
+  hooks:
+    - make precommit
+
+builds:
+  - main: .
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/podplane/podplane/internal/buildvars.buildVersion={{ .Tag }}
+      - -X github.com/podplane/podplane/internal/buildvars.buildDate={{ .Date }}
+      - -X github.com/podplane/podplane/internal/buildvars.commitHash={{ .ShortCommit }}
+      - -X github.com/podplane/podplane/internal/buildvars.commitDate={{ .CommitDate }}
+      - -X github.com/podplane/podplane/internal/buildvars.commitBranch={{ .Branch }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+
+signs:
+  - artifacts: checksum
+    cmd: cosign
+    signature: "${artifact}.bundle"
+    args: ["sign-blob", "--yes", "--bundle=${signature}", "${artifact}"]
+    output: true
+
+checksum:
+  name_template: '{{ .ProjectName }}_{{ .Version }}_checksums.txt'
+  algorithm: sha512
+
+sboms:
+  - id: archive
+    artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.spdx.json"
+  - id: binary
+    artifacts: binary
+    documents:
+      - "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}_{{ .Binary }}.spdx.json"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+
+release:
+  github:
+    owner: podplane
+    name: podplane
+  draft: false
+  prerelease: auto
+  replace_existing_artifacts: false
+
+brews:
+  - name: podplane
+    repository:
+      owner: podplane
+      name: homebrew-podplane
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    commit_author:
+      name: podplane-release-bot
+      email: release-bot@podplane.dev
+    homepage: "https://podplane.dev"
+    description: "The official CLI for Podplane"
+    license: "Apache-2.0"
