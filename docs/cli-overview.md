@@ -42,7 +42,7 @@ Podplane commands use different config/context sources depending on the command:
 
 - __Kubernetes Context__ 
   Flags: `--context` / `--kubeconfig`, default `kubectl config current-context`
-  For Commands: `deploy`, `remove`, `install`, `uninstall`, `logout`.
+  For Commands: `deploy`, `remove`, `logs`, `install`, `uninstall`, `logout`.
   Exceptions:
   - `logout` optionally also accepts `--cluster` or `-f` / `--cluster-config`
 

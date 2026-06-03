@@ -16,5 +16,6 @@ podplane logs <name> [flags]
 
 | Flag | Description |
 | --- | --- |
-| `--context string` | The name of the kubeconfig context to use |
+| `-n, --namespace string` | Kubernetes namespace the app was deployed into |
+| `--context string` | The name of the kubeconfig context to use (default: current kubeconfig context) |
 | `--kubeconfig string` | Path to the kubeconfig file (default: `$KUBECONFIG` or `~/.kube/config`) |
