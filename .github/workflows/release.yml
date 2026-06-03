@@ -43,7 +43,7 @@ jobs:
           app-id: 3948556
           private-key: ${{ secrets.HOMEBREW_TAP_APP_PRIVATE_KEY }}
           owner: podplane
-          repositories: homebrew-podplane
+          repositories: homebrew-tap
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6

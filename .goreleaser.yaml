@@ -80,7 +80,7 @@ brews:
   - name: podplane
     repository:
       owner: podplane
-      name: homebrew-podplane
+      name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     commit_author:
       name: podplane-release-bot

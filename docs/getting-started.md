@@ -19,7 +19,7 @@ Deploying a cluster first generates versionable infrastructure-as-code artifacts
 macOS via [Homebrew](https://brew.sh/):
 
 ```bash
-brew install podplane/podplane
+brew install podplane/tap/podplane
 ```
 
 or via [Go](https://go.dev/):
