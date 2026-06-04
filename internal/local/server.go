@@ -79,18 +79,31 @@ func (m *Local) ServerEnsure(output io.Writer) error {
 	cmd.Stderr = logFile
 	err = cmd.Start()
 	if err != nil {
-		return fmt.Errorf("failed to start local server: %w (log: %s)", err, logPath)
+		return fmt.Errorf("local server failed to start: %w\nLog: %s", err, logPath)
 	}
 	if cmd.Process == nil {
-		return fmt.Errorf("failed to start process")
+		return fmt.Errorf("local server process failed to start\nLog: %s", logPath)
 	}
+	waitCh := make(chan error, 1)
+	go func() {
+		waitCh <- cmd.Wait()
+	}()
 	var newPidFile pid.PIDFile
 	started := false
-	// Print a period character every second until PID file can be loaded
+	// Poll until the background server writes a running PID file, while also
+	// noticing early child-process exits instead of waiting for the full timeout.
 	for range 10 {
+		select {
+		case err := <-waitCh:
+			if err != nil {
+				return fmt.Errorf("local server failed to start: %w\nLog: %s", err, logPath)
+			}
+			return fmt.Errorf("local server failed to start\nLog: %s", logPath)
+		default:
+		}
 		newPidFile, err = ServerPIDFile(m.runtimeDir)
 		if err != nil {
-			return fmt.Errorf("failed to load pid file: %w (log: %s)", err, logPath)
+			return fmt.Errorf("failed to load local server PID file: %w\nLog: %s", err, logPath)
 		}
 		if isRunning, err := newPidFile.IsRunning(); err == nil && isRunning {
 			started = true
@@ -99,11 +112,17 @@ func (m *Local) ServerEnsure(output io.Writer) error {
 		time.Sleep(1 * time.Second)
 	}
 	if !started {
-		_ = cmd.Wait()
-		return fmt.Errorf("failed to start process after 10 seconds (log: %s)", logPath)
-	}
-	if err := cmd.Process.Release(); err != nil {
-		return fmt.Errorf("failed to release local server process: %w (log: %s)", err, logPath)
+		select {
+		case err := <-waitCh:
+			if err != nil {
+				return fmt.Errorf("local server failed to start: %w\nLog: %s", err, logPath)
+			}
+			return fmt.Errorf("local server failed to start\nLog: %s", logPath)
+		default:
+			_ = cmd.Process.Kill()
+			<-waitCh
+			return fmt.Errorf("local server failed to start\nLog: %s", logPath)
+		}
 	}
 	fmt.Fprintf(output, "- HTTP port: %s\n", newPidFile.GetData("http_port"))
 	fmt.Fprintf(output, "- HTTPS port: %s\n", newPidFile.GetData("https_port"))
