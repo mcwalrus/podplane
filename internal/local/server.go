@@ -57,9 +57,6 @@ func (m *Local) ServerEnsure(output io.Writer) error {
 	if err := CheckServerRuntimeDependencies(); err != nil {
 		return fmt.Errorf("local server runtime dependency check failed: %w", err)
 	}
-	if err := EnsureMkcertTrustInstalled(); err != nil {
-		return err
-	}
 
 	// Get the path to the current binary
 	cmdBin, err := os.Executable()

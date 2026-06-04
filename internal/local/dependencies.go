@@ -5,7 +5,12 @@
 package local
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/podplane/podplane/internal/execwrap"
 	"github.com/podplane/podplane/internal/vm/qemu"
@@ -23,13 +28,37 @@ func CheckServerRuntimeDependencies() error {
 	return execwrap.Installed([]string{"mkcert"})
 }
 
-// EnsureMkcertTrustInstalled installs mkcert's local CA into the host trust store.
-// mkcert -install is idempotent and keeps local ingress certificates trusted by
-// host browsers and HTTP clients.
-func EnsureMkcertTrustInstalled() error {
-	cmd := execwrap.Command("mkcert", "-install")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("install mkcert local CA: %w\n%s", err, string(output))
+// MkcertTrustInstalled reports whether mkcert's local CA is trusted by the
+// host system trust store.
+func MkcertTrustInstalled() (bool, error) {
+	cmd := execwrap.Command("mkcert", "-CAROOT")
+	output, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("get mkcert CA root: %w", err)
 	}
-	return nil
+	rootCAPath := filepath.Join(strings.TrimSpace(string(output)), "rootCA.pem")
+	rootCA, err := os.ReadFile(rootCAPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read mkcert root CA: %w", err)
+	}
+	block, _ := pem.Decode(rootCA)
+	if block == nil {
+		return false, fmt.Errorf("parse mkcert root CA: PEM block not found")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return false, fmt.Errorf("parse mkcert root CA: %w", err)
+	}
+	roots, err := x509.SystemCertPool()
+	if err != nil {
+		return false, fmt.Errorf("load system trust store: %w", err)
+	}
+	_, err = cert.Verify(x509.VerifyOptions{
+		Roots:     roots,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	})
+	return err == nil, nil
 }

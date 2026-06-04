@@ -31,7 +31,7 @@ Under the hood deploy runs `helm upgrade --install`.
 
 The `web` template deploys a web application with automatic TLS and ingress routing.
 
-**Component dependencies:** traefik, cert-manager, gateway-api-crds
+**Component dependencies:** traefik, platform-trust
 
 ### What You Get
 

@@ -76,9 +76,6 @@ func newLocalServerCmd(c *config.Config) *cobra.Command {
 		if err := local.CheckServerRuntimeDependencies(); err != nil {
 			return fmt.Errorf("local server runtime dependency check failed: %w", err)
 		}
-		if err := local.EnsureMkcertTrustInstalled(); err != nil {
-			return err
-		}
 
 		// configure signal handling for shutdown
 		shutdownErrsCh := make(chan error)
@@ -98,6 +95,9 @@ func newLocalServerCmd(c *config.Config) *cobra.Command {
 		}
 		if !serverBackground {
 			fmt.Printf("Local server started (PID %d) at HTTP %s:%d and HTTPS %s:%d\n", os.Getpid(), serverAddr, server.HTTPPort(), serverAddr, server.HTTPSPort())
+			if trusted, err := local.MkcertTrustInstalled(); err == nil && !trusted {
+				fmt.Println("For browsers to trust local ingress HTTPS certificates, run `mkcert -install` once.")
+			}
 		}
 
 		// block until a shutdown error is received (err or signal)

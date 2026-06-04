@@ -71,6 +71,9 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 		if err != nil {
 			return fmt.Errorf("check local VM exists: %w", err)
 		}
+		if err := local.CheckServerRuntimeDependencies(); err != nil {
+			return fmt.Errorf("local server dependency check failed: %w", err)
+		}
 		startOpts := local.StartOptions{
 			CPUs:               localStartCPUs,
 			Memory:             localStartMemory,
@@ -149,6 +152,9 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 		fmt.Printf("✓ kubectl configured for local cluster using %q context\n", kubectl.ContextKey(cluster.Cluster.ID, true))
 		if ingressURL, err := manager.LocalIngressURL(); err == nil {
 			fmt.Printf("Local ingress proxy: %s\n", ingressURL)
+			if trusted, err := local.MkcertTrustInstalled(); err == nil && !trusted {
+				fmt.Println("For browsers to trust local ingress HTTPS certificates, run `mkcert -install` once.")
+			}
 		}
 		if localStartConsole {
 			if err := manager.Console(); err != nil {

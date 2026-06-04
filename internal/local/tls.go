@@ -86,7 +86,7 @@ func ensureLocalIngressCertificate(dataDir, name string, hosts ...string) (strin
 		}
 	}
 	if _, err := exec.LookPath("mkcert"); err != nil {
-		return "", "", fmt.Errorf("mkcert is required for local ingress TLS; install mkcert and run `mkcert -install`: %w", err)
+		return "", "", fmt.Errorf("mkcert is required for local ingress TLS; install mkcert and run 'mkcert -install': %w", err)
 	}
 	if err := os.MkdirAll(certDir, 0o755); err != nil {
 		return "", "", fmt.Errorf("create local ingress TLS directory: %w", err)

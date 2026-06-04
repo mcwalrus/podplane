@@ -208,12 +208,12 @@ func renderStatusProgressLine(item StatusProgressItem, status StatusProgressStat
 	}
 	requiredLabel := ""
 	if required {
-		requiredLabel = " required"
+		requiredLabel = " (required)"
 	}
 	if message == "" {
 		return fmt.Sprintf("%s %-24s %-8s %s%s", marker, item.Name, item.Kind, state, requiredLabel)
 	}
-	return fmt.Sprintf("%s %-24s %-8s %s%s — %s", marker, item.Name, item.Kind, state, requiredLabel, message)
+	return fmt.Sprintf("%s %-24s %-8s %s — %s%s", marker, item.Name, item.Kind, state, message, requiredLabel)
 }
 
 // statusProgressSummary renders aggregate readiness counts.
@@ -230,9 +230,9 @@ func statusProgressSummary(statuses map[string]StatusProgressStatus, items, requ
 		}
 	}
 	if len(required) == 0 {
-		return fmt.Sprintf("%d items, %d ready", len(items), ready)
+		return fmt.Sprintf("%d/%d total items ready", ready, len(items))
 	}
-	return fmt.Sprintf("%d items, %d ready; %d/%d required ready", len(items), ready, requiredReady, len(required))
+	return fmt.Sprintf("%d/%d total items ready, %d/%d required items ready", ready, len(items), requiredReady, len(required))
 }
 
 // statusProgressItemRequired reports whether an item must be ready before the
