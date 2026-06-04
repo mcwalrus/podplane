@@ -30,6 +30,7 @@ const localSystemServicesTimeout = 2 * time.Minute
 const localNstanceAgentTimeout = 2 * time.Minute
 const localNetsyHealthTimeout = 2 * time.Minute
 const localAPIReadinessTimeout = 2 * time.Minute
+const localSSHReachabilityTimeout = 90 * time.Second
 
 // ReadinessOptions configures optional output while waiting for first-boot
 // user-data to finish.
@@ -59,6 +60,10 @@ func (m *Local) WaitForReadiness(ctx context.Context, opts ReadinessOptions) err
 	privateKeyPath, err := SSHPrivateKeyPath(m.dataDir)
 	if err != nil {
 		return fmt.Errorf("failed to prepare SSH key for local VM: %w", err)
+	}
+
+	if err := m.waitForSSH(ctx, sshPort, privateKeyPath, opts.Quiet); err != nil {
+		return err
 	}
 
 	deadline := time.Now().Add(localReadinessTimeout)
@@ -110,6 +115,9 @@ func (m *Local) WaitForReadiness(ctx context.Context, opts ReadinessOptions) err
 		if strings.Contains(string(output), "status: error") {
 			return fmt.Errorf("cloud-init user-data failed: %s", strings.TrimSpace(string(output)))
 		}
+		if isLocalVMConnectionFailure(err, output) {
+			return fmt.Errorf("lost SSH connectivity while waiting for cloud-init user-data: %w%s", err, shellOutputDetail(output))
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -153,12 +161,15 @@ func (m *Local) WaitForSystemServices(ctx context.Context, opts WaitOptions) err
 		if commandTimeout > 10*time.Second {
 			commandTimeout = 10 * time.Second
 		}
-		_, err := m.vm.Shell(ctx, "systemctl is-active --quiet "+services, sshPort, privateKeyPath, vm.ShellOptions{Timeout: commandTimeout})
+		output, err := m.vm.Shell(ctx, "systemctl is-active --quiet "+services, sshPort, privateKeyPath, vm.ShellOptions{Timeout: commandTimeout})
 		if err == nil {
 			if !opts.Quiet {
 				color.Green("✓ system services started")
 			}
 			return nil
+		}
+		if isLocalVMConnectionFailure(err, output) {
+			return fmt.Errorf("lost SSH connectivity while waiting for system services: %w%s", err, shellOutputDetail(output))
 		}
 		select {
 		case <-ctx.Done():
@@ -259,12 +270,15 @@ func (m *Local) WaitForNetsyHealth(ctx context.Context, opts WaitOptions) error 
 		if commandTimeout > 10*time.Second {
 			commandTimeout = 10 * time.Second
 		}
-		_, err := m.vm.Shell(ctx, "curl -fsS --max-time 5 http://127.0.0.1:8080/health", sshPort, privateKeyPath, vm.ShellOptions{Timeout: commandTimeout})
+		output, err := m.vm.Shell(ctx, "curl -fsS --max-time 5 http://127.0.0.1:8080/health", sshPort, privateKeyPath, vm.ShellOptions{Timeout: commandTimeout})
 		if err == nil {
 			if !opts.Quiet {
 				color.Green("✓ Netsy healthy")
 			}
 			return nil
+		}
+		if isLocalVMConnectionFailure(err, output) {
+			return fmt.Errorf("lost SSH connectivity while waiting for Netsy health: %w%s", err, shellOutputDetail(output))
 		}
 		select {
 		case <-ctx.Done():
@@ -272,6 +286,91 @@ func (m *Local) WaitForNetsyHealth(ctx context.Context, opts WaitOptions) error 
 		case <-time.After(time.Second):
 		}
 	}
+}
+
+// waitForSSH waits until the VM accepts a basic non-interactive SSH command,
+// failing early when the VM exits or SSH reports a non-boot-related error.
+func (m *Local) waitForSSH(ctx context.Context, sshPort int, privateKeyPath string, quiet bool) error {
+	deadline := time.Now().Add(localSSHReachabilityTimeout)
+	addr := fmt.Sprintf("127.0.0.1:%d", sshPort)
+	if !quiet {
+		fmt.Printf("Waiting for SSH on %s...\n", addr)
+	}
+	var lastErr error
+	var lastOutput []byte
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return fmt.Errorf("SSH did not become reachable on %s after %s; VM boot may have failed, run `podplane local console` to inspect it: %w%s", addr, localSSHReachabilityTimeout, lastErr, shellOutputDetail(lastOutput))
+		}
+		commandTimeout := remaining
+		if commandTimeout > 8*time.Second {
+			commandTimeout = 8 * time.Second
+		}
+		output, err := m.vm.Shell(ctx, "true", sshPort, privateKeyPath, vm.ShellOptions{Timeout: commandTimeout})
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		lastOutput = output
+		if strings.Contains(err.Error(), "no VM is currently running") {
+			return fmt.Errorf("VM stopped before SSH became reachable; run `podplane local console` to inspect the boot log: %w", err)
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Second):
+			}
+			continue
+		}
+		if !isLocalVMConnectionFailure(err, output) {
+			return fmt.Errorf("SSH check failed on %s: %w%s", addr, err, shellOutputDetail(output))
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+// isLocalVMConnectionFailure reports whether a shell error looks like a VM/SSH
+// transport failure rather than a guest command failure.
+func isLocalVMConnectionFailure(err error, output []byte) bool {
+	if err == nil {
+		return false
+	}
+	text := err.Error() + "\n" + string(output)
+	failureMarkers := []string{
+		"no VM is currently running",
+		"Connection refused",
+		"Connection timed out",
+		"Operation timed out",
+		"No route to host",
+		"Connection closed",
+		"Connection reset",
+		"kex_exchange_identification",
+	}
+	for _, marker := range failureMarkers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// shellOutputDetail formats non-empty shell output for inclusion in an error
+// message.
+func shellOutputDetail(output []byte) string {
+	trimmed := strings.TrimSpace(string(output))
+	if trimmed == "" {
+		return ""
+	}
+	return ": " + trimmed
 }
 
 // startReadinessProgress prints a simple one-line heartbeat while cloud-init
