@@ -174,14 +174,23 @@ func TestGenerateAWSOIDCTerraform(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateOIDC returned error: %v", err)
 	}
-	if len(files) != 1 {
-		t.Fatalf("len(files) = %d, want 1", len(files))
+	if len(files) != 3 {
+		t.Fatalf("len(files) = %d, want 3", len(files))
 	}
-	if files[0].Name != "podplane.oidc.tf" {
-		t.Fatalf("files[0].Name = %q, want podplane.oidc.tf", files[0].Name)
+	contents := fileContents(files)
+	for _, name := range []string{
+		"podplane.oidc.main.tf",
+		"podplane.oidc.variables.tf",
+		"podplane.oidc.outputs.tf",
+	} {
+		if _, ok := contents[name]; !ok {
+			t.Fatalf("generated files missing %s: %#v", name, files)
+		}
 	}
-	got := files[0].Content
-	assertExpectedTerraform(t, "podplane.oidc.expected.tf", got)
+	assertExpectedTerraform(t, "podplane.oidc.main.expected.tf", contents["podplane.oidc.main.tf"])
+	assertExpectedTerraform(t, "podplane.oidc.variables.expected.tf", contents["podplane.oidc.variables.tf"])
+	assertExpectedTerraform(t, "podplane.oidc.outputs.expected.tf", contents["podplane.oidc.outputs.tf"])
+	got := contents["podplane.oidc.main.tf"] + contents["podplane.oidc.variables.tf"] + contents["podplane.oidc.outputs.tf"]
 	for _, want := range []string{
 		`oidc_addr = "auth.example.com"`,
 		`connector_type = "google"`,

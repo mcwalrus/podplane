@@ -36,8 +36,14 @@ func TestOIDCCreateNoApplyGeneratesTerraform(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("oidc create --no-apply returned error: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "podplane.oidc.tf")); err != nil {
-		t.Fatalf("OIDC tf was not generated: %v", err)
+	for _, name := range []string{
+		"podplane.oidc.main.tf",
+		"podplane.oidc.variables.tf",
+		"podplane.oidc.outputs.tf",
+	} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("OIDC tf %s was not generated: %v", name, err)
+		}
 	}
 }
 

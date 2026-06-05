@@ -28,7 +28,3 @@ module "oidc" {
   }
   route53_zone_id = data.aws_route53_zone.oidc.zone_id
 }
-
-output "oidc_issuer_url" {
-  value = "https://${module.oidc.oidc_addr}"
-}

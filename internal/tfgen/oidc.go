@@ -20,7 +20,7 @@ func GenerateOIDC(cfg *oidcconfig.Config) ([]File, error) {
 	if cfg.OIDC.Provider.Kind != "aws" {
 		return nil, fmt.Errorf("OIDC provider %q is not supported", cfg.OIDC.Provider.Kind)
 	}
-	return []File{{Name: "podplane.oidc.tf", Content: renderAWSOIDC(cfg)}}, nil
+	return renderAWSOIDC(cfg), nil
 }
 
 // WriteOIDC writes managed Terraform files for an OIDC config.
@@ -32,10 +32,12 @@ func WriteOIDC(dir string, cfg *oidcconfig.Config) error {
 	return WriteFiles(dir, files)
 }
 
-// renderAWSOIDC renders the AWS Easy OIDC Terraform file.
-func renderAWSOIDC(cfg *oidcconfig.Config) string {
+// renderAWSOIDC renders the AWS Easy OIDC Terraform files.
+func renderAWSOIDC(cfg *oidcconfig.Config) []File {
 	o := cfg.OIDC
-	var doc hclDocument
+	var mainDoc hclDocument
+	var variablesDoc hclDocument
+	var outputsDoc hclDocument
 
 	terraform := block("terraform")
 	terraform.Body.Attr("required_version", str(">= 1.6.0"))
@@ -45,14 +47,14 @@ func renderAWSOIDC(cfg *oidcconfig.Config) string {
 			identField("version", str(">= 6.0")),
 		)),
 	))
-	doc.AddBlock(terraform)
+	mainDoc.AddBlock(terraform)
 
 	provider := block("provider", "aws")
 	provider.Body.Attr("region", str(o.Provider.Region))
 	if o.Provider.Profile != "" {
 		provider.Body.Attr("profile", str(o.Provider.Profile))
 	}
-	doc.AddBlock(provider)
+	mainDoc.AddBlock(provider)
 
 	if o.Domain.Provider.Kind == "aws" && o.Domain.Zone != "" {
 		zone := block("data", "aws_route53_zone", "oidc")
@@ -65,7 +67,7 @@ func renderAWSOIDC(cfg *oidcconfig.Config) string {
 			}
 			zone.Body.Attr("name", str(zoneName))
 		}
-		doc.AddBlock(zone)
+		mainDoc.AddBlock(zone)
 	}
 
 	module := block("module", "oidc")
@@ -86,12 +88,16 @@ func renderAWSOIDC(cfg *oidcconfig.Config) string {
 	if o.Domain.Provider.Kind == "aws" && o.Domain.Zone != "" {
 		module.Body.Attr("route53_zone_id", expr("data.aws_route53_zone.oidc.zone_id"))
 	}
-	doc.AddBlock(module)
+	mainDoc.AddBlock(module)
 
 	output := block("output", "oidc_issuer_url")
 	output.Body.Attr("value", str("https://${module.oidc.oidc_addr}"))
-	doc.AddBlock(output)
-	return doc.String()
+	outputsDoc.AddBlock(output)
+	return []File{
+		{Name: "podplane.oidc.main.tf", Content: mainDoc.String()},
+		{Name: "podplane.oidc.variables.tf", Content: variablesDoc.String()},
+		{Name: "podplane.oidc.outputs.tf", Content: outputsDoc.String()},
+	}
 }
 
 // oidcClientsValue converts configured OIDC clients into an ordered HCL
