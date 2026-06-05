@@ -11,8 +11,45 @@ import (
 	"testing"
 
 	"github.com/podplane/podplane/internal/clusterconfig"
+	"github.com/podplane/podplane/internal/deps"
 	"github.com/podplane/podplane/internal/oidcconfig"
 )
+
+// sampleVMConfigManifest returns a small vmconfig manifest for tfgen tests.
+func sampleVMConfigManifest(kind string, arch string) *deps.Manifest {
+	return &deps.Manifest{VMConfig: deps.VMConfig{
+		Version: "2026.01.01",
+		Kind:    kind,
+		OS: deps.OSInfo{
+			Name: deps.OS,
+			Arch: arch,
+		},
+		Dependencies: map[string]deps.Dependency{
+			"runc": {
+				Version: "1.2.3",
+				URL:     "https://example.com/deps/runc",
+				Digest:  "sha256:" + strings.Repeat("a", 64),
+			},
+			"vmconfig": {
+				Version: "2026.01.01",
+				URL:     "https://example.com/deps/vmconfig.tar.gz",
+				Type:    "tar.gz",
+				Digest:  "sha256:" + strings.Repeat("b", 64),
+			},
+		},
+	}}
+}
+
+// testClusterOptions returns fixed dependency inputs so cluster tfgen tests do
+// not read the local deps cache or fetch remote manifests.
+func testClusterOptions() ClusterOptions {
+	return ClusterOptions{
+		DepsMirrorURL: "https://cli.podplane.dev/deps",
+		VMConfigManifests: map[string]*deps.Manifest{
+			"knc/arm64": sampleVMConfigManifest("knc", "arm64"),
+		},
+	}
+}
 
 // TestGenerateAWSClusterTerraform verifies the generated AWS cluster Terraform
 // contains the expected provider modules and group references.
@@ -43,7 +80,7 @@ func TestGenerateAWSClusterTerraform(t *testing.T) {
 			},
 		}},
 	}}
-	files, err := GenerateCluster(filepath.Join(t.TempDir(), "podplane.cluster.jsonc"), cfg)
+	files, err := GenerateCluster(filepath.Join(t.TempDir(), "podplane.cluster.jsonc"), cfg, testClusterOptions())
 	if err != nil {
 		t.Fatalf("GenerateCluster returned error: %v", err)
 	}
@@ -93,7 +130,7 @@ func TestGenerateAWSClusterTerraformWithoutSeed(t *testing.T) {
 			},
 		}},
 	}}
-	files, err := GenerateCluster(filepath.Join(t.TempDir(), "podplane.cluster.jsonc"), cfg)
+	files, err := GenerateCluster(filepath.Join(t.TempDir(), "podplane.cluster.jsonc"), cfg, testClusterOptions())
 	if err != nil {
 		t.Fatalf("GenerateCluster returned error: %v", err)
 	}

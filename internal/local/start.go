@@ -301,38 +301,51 @@ func (m *Local) Start(opts StartOptions) (string, error) {
 
 	// Render the user-data script.
 	vars := userdata.TemplateVars{
-		Manifest:                    manifest,
-		DepsMirrorURL:               depsServerURL,
-		NstanceRegistrationNonceJWT: nstanceBootstrap.RegistrationNonceJWT,
-		Env: userdata.EnvVars{
-			SSHAuthorizedKey:              sshAuthorizedKey,
-			InstanceID:                    instanceID,
-			ClusterID:                     clusterID,
-			ProviderKind:                  "local",
-			ProviderRegion:                "local",
-			ProviderZone:                  "local",
-			ProviderInstanceType:          "local",
-			OIDCIssuer:                    oidcIssuerURL,
-			OIDCCustomCA:                  encodedCACert,
-			OIDCCAFile:                    "/opt/crt/oidc-ca.pem",
-			KubeLogLevel:                  "5",
-			KubeAPIPublicHostname:         "localhost",
-			KubeAPIEtcdServers:            "https://127.0.0.1:2378",
-			NstanceCACert:                 nstanceBootstrap.CACert,
-			NstanceServerRegistrationAddr: nstanceBootstrap.ServerRegistrationAddr,
-			NstanceServerAgentAddr:        nstanceBootstrap.ServerAgentAddr,
-			TelemetryLogServices:          "first-boot-env,cron,ssh,netsy,nstance-agent,nstance-recv-watch,containerd,kube-apiserver,kube-controller-manager,kube-scheduler,kubelet,zot",
-			RegistryEnabled:               "true",
-			RegistryHostname:              fmt.Sprintf("%s-registry.local", clusterID),
-			RegistryBucket:                "registry",
+		Manifest:      manifest,
+		DepsMirrorURL: depsServerURL,
+		Cluster: userdata.ClusterData{
+			ID:     clusterID,
+			CACert: nstanceBootstrap.CACert,
 		},
+		Provider: userdata.ProviderData{
+			Kind:   "local",
+			Region: "local",
+			Zone:   "local",
+		},
+		Instance: userdata.InstanceData{
+			ID:   instanceID,
+			Type: "local",
+		},
+		Server: userdata.ServerData{
+			RegistrationAddr: nstanceBootstrap.ServerRegistrationAddr,
+			AgentAddr:        nstanceBootstrap.ServerAgentAddr,
+		},
+		Vars: userdata.MutableVars{
+			"SSH_AUTHORIZED_KEY":       sshAuthorizedKey,
+			"OIDC_ISSUER":              oidcIssuerURL,
+			"OIDC_CUSTOM_CA":           encodedCACert,
+			"OIDC_CA_FILE":             "/opt/crt/oidc-ca.pem",
+			"KUBE_LOG_LEVEL":           "5",
+			"KUBE_API_PUBLIC_HOSTNAME": "localhost",
+			"KUBE_API_ETCD_SERVERS":    "https://127.0.0.1:2378",
+			"TELEMETRY_LOG_SERVICES":   "first-boot-env,cron,ssh,netsy,nstance-agent,nstance-recv-watch,containerd,kube-apiserver,kube-controller-manager,kube-scheduler,kubelet,zot",
+			"REGISTRY_ENABLED":         "true",
+			"REGISTRY_HOSTNAME":        fmt.Sprintf("%s-registry.local", clusterID),
+			"REGISTRY_BUCKET":          "registry",
+		},
+		Nonce: nstanceBootstrap.RegistrationNonceJWT,
 	}
-	vars.Env.SetObjectStorageEndpoint(s3DataEndpointURL)
-	vars.Env.RegistryEndpoint = s3CacheEndpointURL
-	vars.Env.SetObjectStorageRegion("local")
-	vars.Env.SetObjectStorageCredentials("test", "test")
+	vars.Vars.SetObjectStorageEndpoint(s3DataEndpointURL)
+	vars.Vars["REGISTRY_ENDPOINT"] = s3CacheEndpointURL
+	vars.Vars.SetObjectStorageRegion("local")
+	vars.Vars["NETSY_ACCESS_KEY_ID"] = "test"
+	vars.Vars["NETSY_SECRET_ACCESS_KEY"] = "test"
+	vars.Vars["TELEMETRY_S3_ACCESS_KEY_ID"] = "test"
+	vars.Vars["TELEMETRY_S3_SECRET_ACCESS_KEY"] = "test"
+	vars.Vars["REGISTRY_ACCESS_KEY_ID"] = "test"
+	vars.Vars["REGISTRY_SECRET_ACCESS_KEY"] = "test"
 	vars.ApplyDefaults()
-	mutableEnv := renderLocalMutableEnv(vars.Env)
+	mutableEnv := userdata.RenderMutableEnv(vars.Vars)
 	mutableEnvChanged := false
 	if vmExisted {
 		mutableEnvChanged, err = m.stageMutableEnvIfChanged(context.Background(), nstanceStore, clusterID, instanceID, mutableEnv)
@@ -454,12 +467,12 @@ func (m *Local) repairExistingNstanceAgentEnv(ctx context.Context, sshPort int, 
 	if err := m.WaitForReadiness(ctx, ReadinessOptions{Quiet: quiet}); err != nil {
 		return err
 	}
-	registrationExpr := "s|^NSTANCE_SERVER_REGISTRATION_ADDR=.*|NSTANCE_SERVER_REGISTRATION_ADDR=" + quoteLocalEnvValue(registrationAddr) + "|"
-	agentExpr := "s|^NSTANCE_SERVER_AGENT_ADDR=.*|NSTANCE_SERVER_AGENT_ADDR=" + quoteLocalEnvValue(agentAddr) + "|"
+	registrationExpr := "s|^NSTANCE_SERVER_REGISTRATION_ADDR=.*|NSTANCE_SERVER_REGISTRATION_ADDR=" + userdata.QuoteEnvValue(registrationAddr) + "|"
+	agentExpr := "s|^NSTANCE_SERVER_AGENT_ADDR=.*|NSTANCE_SERVER_AGENT_ADDR=" + userdata.QuoteEnvValue(agentAddr) + "|"
 	command := fmt.Sprintf(
 		"sudo sed -i -e %s -e %s /opt/env/nstance-agent.env && sudo systemctl restart nstance-agent",
-		quoteLocalEnvValue(registrationExpr),
-		quoteLocalEnvValue(agentExpr),
+		userdata.QuoteEnvValue(registrationExpr),
+		userdata.QuoteEnvValue(agentExpr),
 	)
 	privateKeyPath, err := SSHPrivateKeyPath(m.dataDir)
 	if err != nil {

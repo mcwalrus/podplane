@@ -1,16 +1,16 @@
 #!/bin/bash -e
 # Podplane VM userdata (rendered).
-# Provider: {{.Env.ProviderKind}}
-# Cluster ID: {{.Env.ClusterID}}
-# Instance ID: {{.Env.InstanceID}}
+# Provider: {{.Provider.Kind}}
+# Cluster ID: {{.Cluster.ID}}
+# Instance ID: {{.Instance.ID}}
 # Manifest version: {{.Manifest.VMConfig.Version}}
 # OS: {{.Manifest.VMConfig.OS.Name}}
 # Arch: {{.Manifest.VMConfig.OS.Arch}}
 # Cluster bucket names (cluster-prefixed):
-#   netsy={{.Env.NetsyBucket}}
-#   registry={{.Env.RegistryBucket}}
-#   telemetry={{.Env.TelemetryBucket}}
-# OIDC Issuer: {{.Env.OIDCIssuer}}
+#   netsy={{.Vars.NETSY_BUCKET}}
+#   registry={{.Vars.REGISTRY_BUCKET}}
+#   telemetry={{.Vars.TELEMETRY_S3_BUCKET}}
+# OIDC Issuer: {{.Vars.OIDC_ISSUER}}
 {{- if .DepsMirrorURL}}
 # Deps Mirror={{.DepsMirrorURL}}
 {{- end}}
@@ -21,8 +21,8 @@ echo "Podplane cloud-init user-data script has started."
 
 # --- 1. Configure hostname --------------------------------------------------
 
-hostnamectl set-hostname {{.Env.InstanceID}}
-{{if eq .Env.ProviderKind "local"}}echo "debian:devonly" | chpasswd
+hostnamectl set-hostname {{.Instance.ID}}
+{{if eq .Provider.Kind "local"}}echo "debian:devonly" | chpasswd
 {{end}}
 
 # --- 2. Download and verify dependencies ------------------------------------
@@ -63,65 +63,74 @@ tar -xzf "${ARTIFACTS_DIR}/vmconfig.tar.gz" -C /
 echo "Writing user-data.env file..."
 mkdir -p /opt/podplane/etc
 cat > /opt/podplane/etc/user-data.env <<'USERDATA_ENV'
-SSH_AUTHORIZED_KEY='{{.Env.SSHAuthorizedKey}}'
+SSH_AUTHORIZED_KEY='{{.Vars.SSH_AUTHORIZED_KEY}}'
 
-INSTANCE_ID='{{.Env.InstanceID}}'
-CLUSTER_ID='{{.Env.ClusterID}}'
+INSTANCE_ID='{{.Instance.ID}}'
+CLUSTER_ID='{{.Cluster.ID}}'
 
-PROVIDER_KIND='{{.Env.ProviderKind}}'
-PROVIDER_REGION='{{.Env.ProviderRegion}}'
-PROVIDER_ZONE='{{.Env.ProviderZone}}'
-PROVIDER_INSTANCE_TYPE='{{.Env.ProviderInstanceType}}'
-AWS_ACCOUNT_ID='{{.Env.AWSAccountID}}'
-GOOGLE_PROJECT_ID='{{.Env.GoogleProjectID}}'
+PROVIDER_KIND='{{.Provider.Kind}}'
+PROVIDER_REGION='{{.Provider.Region}}'
+PROVIDER_ZONE='{{.Provider.Zone}}'
+PROVIDER_INSTANCE_TYPE='{{.Instance.Type}}'
+AWS_ACCOUNT_ID='{{.AWSAccountID}}'
+GOOGLE_PROJECT_ID='{{.GoogleProjectID}}'
 
-OIDC_ISSUER='{{.Env.OIDCIssuer}}'
-OIDC_CUSTOM_CA='{{.Env.OIDCCustomCA}}'
-OIDC_CA_FILE='{{.Env.OIDCCAFile}}'
+OIDC_ISSUER='{{.Vars.OIDC_ISSUER}}'
+OIDC_CUSTOM_CA='{{.Vars.OIDC_CUSTOM_CA}}'
+OIDC_CA_FILE='{{.Vars.OIDC_CA_FILE}}'
 
-KUBE_LOG_LEVEL='{{.Env.KubeLogLevel}}'
-KUBE_API_PUBLIC_HOSTNAME='{{.Env.KubeAPIPublicHostname}}'
-KUBE_API_PORT='{{.Env.KubeAPIPort}}'
-KUBE_API_ETCD_SERVERS='{{.Env.KubeAPIEtcdServers}}'
+KUBE_LOG_LEVEL='{{.Vars.KUBE_LOG_LEVEL}}'
+KUBE_API_PUBLIC_HOSTNAME='{{.Vars.KUBE_API_PUBLIC_HOSTNAME}}'
+KUBE_API_PORT='{{.Vars.KUBE_API_PORT}}'
+KUBE_API_INTERNAL_LB_HOSTNAME='{{.Vars.KUBE_API_INTERNAL_LB_HOSTNAME}}'
+KUBE_API_ETCD_SERVERS='{{.Vars.KUBE_API_ETCD_SERVERS}}'
 
-NSTANCE_CA_CERT='{{.Env.NstanceCACert}}'
-NSTANCE_SERVER_REGISTRATION_ADDR='{{.Env.NstanceServerRegistrationAddr}}'
-NSTANCE_SERVER_AGENT_ADDR='{{.Env.NstanceServerAgentAddr}}'
+NSTANCE_CA_CERT='{{.Cluster.CACert}}'
+NSTANCE_SERVER_REGISTRATION_ADDR='{{.Server.RegistrationAddr}}'
+NSTANCE_SERVER_AGENT_ADDR='{{.Server.AgentAddr}}'
 
-NETSY_BUCKET='{{.Env.NetsyBucket}}'
-NETSY_ENDPOINT='{{.Env.NetsyEndpoint}}'
-NETSY_REGION='{{.Env.NetsyRegion}}'
-NETSY_ACCESS_KEY_ID='{{.Env.NetsyAccessKeyID}}'
-NETSY_SECRET_ACCESS_KEY='{{.Env.NetsySecretAccessKey}}'
+NETSY_BUCKET='{{.Vars.NETSY_BUCKET}}'
+NETSY_ENDPOINT='{{.Vars.NETSY_ENDPOINT}}'
+NETSY_REGION='{{.Vars.NETSY_REGION}}'
+NETSY_ASSUME_ROLE='{{.Vars.NETSY_ASSUME_ROLE}}'
+NETSY_ACCESS_KEY_ID='{{.Vars.NETSY_ACCESS_KEY_ID}}'
+NETSY_SECRET_ACCESS_KEY='{{.Vars.NETSY_SECRET_ACCESS_KEY}}'
 
-TELEMETRY_BUCKET='{{.Env.TelemetryBucket}}'
-TELEMETRY_ENDPOINT='{{.Env.TelemetryEndpoint}}'
-TELEMETRY_REGION='{{.Env.TelemetryRegion}}'
-TELEMETRY_LOG_SERVICES='{{.Env.TelemetryLogServices}}'
-TELEMETRY_LOG_CLOUDINIT='{{.Env.TelemetryLogCloudinit}}'
-TELEMETRY_ACCESS_KEY_ID='{{.Env.TelemetryAccessKeyID}}'
-TELEMETRY_SECRET_ACCESS_KEY='{{.Env.TelemetrySecretAccessKey}}'
+TELEMETRY_ENABLED='{{.Vars.TELEMETRY_ENABLED}}'
+TELEMETRY_S3_BUCKET='{{.Vars.TELEMETRY_S3_BUCKET}}'
+TELEMETRY_S3_ENDPOINT='{{.Vars.TELEMETRY_S3_ENDPOINT}}'
+TELEMETRY_S3_REGION='{{.Vars.TELEMETRY_S3_REGION}}'
+TELEMETRY_S3_ASSUME_ROLE='{{.Vars.TELEMETRY_S3_ASSUME_ROLE}}'
+TELEMETRY_LOG_SERVICES='{{.Vars.TELEMETRY_LOG_SERVICES}}'
+TELEMETRY_LOG_CLOUDINIT='{{.Vars.TELEMETRY_LOG_CLOUDINIT}}'
+TELEMETRY_S3_ACCESS_KEY_ID='{{.Vars.TELEMETRY_S3_ACCESS_KEY_ID}}'
+TELEMETRY_S3_SECRET_ACCESS_KEY='{{.Vars.TELEMETRY_S3_SECRET_ACCESS_KEY}}'
+TELEMETRY_OTLP_ENDPOINT='{{.Vars.TELEMETRY_OTLP_ENDPOINT}}'
 
-REGISTRY_ENABLED='{{.Env.RegistryEnabled}}'
-REGISTRY_BUCKET='{{.Env.RegistryBucket}}'
-REGISTRY_HOSTNAME='{{.Env.RegistryHostname}}'
-REGISTRY_ENDPOINT='{{.Env.RegistryEndpoint}}'
-REGISTRY_REGION='{{.Env.RegistryRegion}}'
-REGISTRY_ACCESS_KEY_ID='{{.Env.RegistryAccessKeyID}}'
-REGISTRY_SECRET_ACCESS_KEY='{{.Env.RegistrySecretAccessKey}}'
-AWS_S3_USE_PATH_STYLE='{{.Env.AWSS3UsePathStyle}}'
+REGISTRY_ENABLED='{{.Vars.REGISTRY_ENABLED}}'
+REGISTRY_BUCKET='{{.Vars.REGISTRY_BUCKET}}'
+REGISTRY_HOSTNAME='{{.Vars.REGISTRY_HOSTNAME}}'
+REGISTRY_ENDPOINT='{{.Vars.REGISTRY_ENDPOINT}}'
+REGISTRY_REGION='{{.Vars.REGISTRY_REGION}}'
+REGISTRY_ASSUME_ROLE='{{.Vars.REGISTRY_ASSUME_ROLE}}'
+REGISTRY_ACCESS_KEY_ID='{{.Vars.REGISTRY_ACCESS_KEY_ID}}'
+REGISTRY_SECRET_ACCESS_KEY='{{.Vars.REGISTRY_SECRET_ACCESS_KEY}}'
+AWS_S3_USE_PATH_STYLE='{{.Vars.AWS_S3_USE_PATH_STYLE}}'
 USERDATA_ENV
 chmod 0600 /opt/podplane/etc/user-data.env
 
 # --- 5. Write sensitive nstance bootstrap files -----------------------------
 
-{{- if .NstanceRegistrationNonceJWT}}
+{{- if .Nonce}}
 echo "Writing nstance registration nonce file..."
 mkdir -p /opt/nstance-agent/identity
 cat > /opt/nstance-agent/identity/nonce.jwt <<'NSTANCE_NONCE_JWT'
-{{.NstanceRegistrationNonceJWT}}
+{{.Nonce}}
 NSTANCE_NONCE_JWT
-chmod 0600 /opt/nstance-agent/identity/nonce.jwt
+cat > /opt/nstance-agent/identity/ca.crt <<'NSTANCE_CA_CERT'
+{{.Cluster.CACert}}
+NSTANCE_CA_CERT
+chmod 0600 /opt/nstance-agent/identity/nonce.jwt /opt/nstance-agent/identity/ca.crt
 {{else}}
 # skipped
 {{- end}}
@@ -129,7 +138,7 @@ chmod 0600 /opt/nstance-agent/identity/nonce.jwt
 # -- 6. Run install.sh -------------------------------------------------------
 
 {{if not (.Manifest.HasVMConfigDep .ManifestFilter)}}
-{{if eq .Env.ProviderKind "local"}}
+{{if eq .Provider.Kind "local"}}
 if ! command -v rsync >/dev/null 2>&1; then
   echo "Installing rsync for local vmconfig development sync..."
   apt-get update
@@ -151,7 +160,7 @@ chmod +x /opt/podplane/bin/install.sh
 echo "Running configure.sh..."
 chmod +x /opt/podplane/bin/configure.sh
 /opt/podplane/bin/configure.sh
-{{if eq .Env.ProviderKind "local"}}
+{{if eq .Provider.Kind "local"}}
 # --- Local provider VM preparation ------------------------------------------
 
 echo "Applying local provider VM preparation..."
@@ -169,7 +178,7 @@ for url in \
   "${NSTANCE_SERVER_REGISTRATION_ADDR:-}" \
   "${NSTANCE_SERVER_AGENT_ADDR:-}" \
   "${NETSY_ENDPOINT:-}" \
-  "${TELEMETRY_ENDPOINT:-}" \
+  "${TELEMETRY_S3_ENDPOINT:-}" \
   "${REGISTRY_ENDPOINT:-}"
 do
   [ -n "$url" ] || continue

@@ -51,32 +51,41 @@ func baseVars(provider string) *TemplateVars {
 	v := &TemplateVars{
 		Manifest:      sampleManifest(),
 		DepsMirrorURL: "http://10.0.2.2:1234/deps",
-		Env: EnvVars{
-			SSHAuthorizedKey:      "ssh-ed25519 AAAAexample",
-			InstanceID:            "ins06djbn8xgdtz92astpmdv1jfk4",
-			ClusterID:             "example-cluster",
-			ProviderKind:          provider,
-			ProviderRegion:        "local",
-			ProviderZone:          "local",
-			ProviderInstanceType:  "local",
-			OIDCIssuer:            "http://10.0.2.2:1234/oidc",
-			OIDCCAFile:            "/opt/crt/oidc-ca.pem",
-			KubeLogLevel:          "5",
-			KubeAPIPublicHostname: "localhost",
-			KubeAPIEtcdServers:    "https://127.0.0.1:2378",
-			TelemetryLogServices:  "first-boot-env,cron,ssh,netsy,nstance-agent,nstance-recv-watch,containerd,kube-apiserver,kube-controller-manager,kube-scheduler,kubelet,zot",
-			RegistryHostname:      "registry.example.com",
+		Cluster:       ClusterData{ID: "example-cluster"},
+		Provider: ProviderData{
+			Kind:   provider,
+			Region: "local",
+			Zone:   "local",
+		},
+		Instance: InstanceData{
+			ID:   "ins06djbn8xgdtz92astpmdv1jfk4",
+			Type: "local",
+		},
+		Vars: MutableVars{
+			"SSH_AUTHORIZED_KEY":       "ssh-ed25519 AAAAexample",
+			"OIDC_ISSUER":              "http://10.0.2.2:1234/oidc",
+			"OIDC_CA_FILE":             "/opt/crt/oidc-ca.pem",
+			"KUBE_LOG_LEVEL":           "5",
+			"KUBE_API_PUBLIC_HOSTNAME": "localhost",
+			"KUBE_API_ETCD_SERVERS":    "https://127.0.0.1:2378",
+			"TELEMETRY_LOG_SERVICES":   "first-boot-env,cron,ssh,netsy,nstance-agent,nstance-recv-watch,containerd,kube-apiserver,kube-controller-manager,kube-scheduler,kubelet,zot",
+			"REGISTRY_HOSTNAME":        "registry.example.com",
 		},
 	}
-	v.Env.SetObjectStorageEndpoint("http://10.0.2.2:1234/s3")
-	v.Env.SetObjectStorageRegion("local")
-	v.Env.SetObjectStorageCredentials("test", "test")
+	v.Vars.SetObjectStorageEndpoint("http://10.0.2.2:1234/s3")
+	v.Vars.SetObjectStorageRegion("local")
+	v.Vars["NETSY_ACCESS_KEY_ID"] = "test"
+	v.Vars["NETSY_SECRET_ACCESS_KEY"] = "test"
+	v.Vars["TELEMETRY_S3_ACCESS_KEY_ID"] = "test"
+	v.Vars["TELEMETRY_S3_SECRET_ACCESS_KEY"] = "test"
+	v.Vars["REGISTRY_ACCESS_KEY_ID"] = "test"
+	v.Vars["REGISTRY_SECRET_ACCESS_KEY"] = "test"
 	return v
 }
 
 func TestRender_Local_HasDebianPasswordLine(t *testing.T) {
 	v := baseVars("local")
-	v.NstanceRegistrationNonceJWT = "nonce.jwt.value"
+	v.Nonce = "nonce.jwt.value"
 	out, err := v.Render()
 	if err != nil {
 		t.Fatalf("Render: %v", err)
@@ -132,8 +141,8 @@ func TestRender_Local_HasDebianPasswordLine(t *testing.T) {
 	if !strings.Contains(out, "NETSY_ENDPOINT='http://10.0.2.2:1234/s3'") {
 		t.Errorf("expected NETSY_ENDPOINT in user-data.env; got:\n%s", out)
 	}
-	if !strings.Contains(out, "TELEMETRY_ACCESS_KEY_ID='test'") {
-		t.Errorf("expected TELEMETRY_ACCESS_KEY_ID in user-data.env; got:\n%s", out)
+	if !strings.Contains(out, "TELEMETRY_S3_ACCESS_KEY_ID='test'") {
+		t.Errorf("expected TELEMETRY_S3_ACCESS_KEY_ID in user-data.env; got:\n%s", out)
 	}
 	if !strings.Contains(out, "TELEMETRY_LOG_SERVICES='first-boot-env,cron,ssh,netsy,nstance-agent,nstance-recv-watch,containerd,kube-apiserver,kube-controller-manager,kube-scheduler,kubelet,zot'") {
 		t.Errorf("expected TELEMETRY_LOG_SERVICES in user-data.env; got:\n%s", out)
@@ -229,7 +238,7 @@ func TestRender_WithDepsMirrorURL_UsesMirrorURLs(t *testing.T) {
 
 func TestValidate_MissingProvider(t *testing.T) {
 	v := baseVars("local")
-	v.Env.ProviderKind = ""
+	v.Provider.Kind = ""
 	if _, err := v.Render(); err == nil {
 		t.Fatalf("expected validation error for missing ProviderKind")
 	}
@@ -252,7 +261,7 @@ func TestValidate_MissingManifest(t *testing.T) {
 
 func TestValidate_MissingClusterID(t *testing.T) {
 	v := baseVars("local")
-	v.Env.ClusterID = ""
+	v.Cluster.ID = ""
 	if _, err := v.Render(); err == nil {
 		t.Fatalf("expected validation error for missing ClusterID")
 	}
@@ -260,7 +269,7 @@ func TestValidate_MissingClusterID(t *testing.T) {
 
 func TestValidate_InvalidKubeAPIPort(t *testing.T) {
 	v := baseVars("local")
-	v.Env.KubeAPIPort = "not-a-port"
+	v.Vars["KUBE_API_PORT"] = "not-a-port"
 	if _, err := v.Render(); err == nil {
 		t.Fatalf("expected validation error for invalid KubeAPIPort")
 	}
@@ -268,7 +277,7 @@ func TestValidate_InvalidKubeAPIPort(t *testing.T) {
 
 func TestValidate_InvalidTelemetryLogCloudinit(t *testing.T) {
 	v := baseVars("local")
-	v.Env.TelemetryLogCloudinit = "maybe"
+	v.Vars["TELEMETRY_LOG_CLOUDINIT"] = "maybe"
 	if _, err := v.Render(); err == nil {
 		t.Fatalf("expected validation error for invalid TelemetryLogCloudinit")
 	}
@@ -276,8 +285,8 @@ func TestValidate_InvalidTelemetryLogCloudinit(t *testing.T) {
 
 func TestValidate_RegistryEnabledRequiresHostname(t *testing.T) {
 	v := baseVars("local")
-	v.Env.RegistryEnabled = "true"
-	v.Env.RegistryHostname = ""
+	v.Vars["REGISTRY_ENABLED"] = "true"
+	v.Vars["REGISTRY_HOSTNAME"] = ""
 	if _, err := v.Render(); err == nil {
 		t.Fatalf("expected validation error when registry is enabled without a hostname")
 	}
@@ -285,7 +294,7 @@ func TestValidate_RegistryEnabledRequiresHostname(t *testing.T) {
 
 func TestValidate_InvalidTelemetryLogServices(t *testing.T) {
 	v := baseVars("local")
-	v.Env.TelemetryLogServices = "kubelet,ssh.service"
+	v.Vars["TELEMETRY_LOG_SERVICES"] = "kubelet,ssh.service"
 	if _, err := v.Render(); err == nil {
 		t.Fatalf("expected validation error for invalid TelemetryLogServices")
 	}
@@ -293,7 +302,7 @@ func TestValidate_InvalidTelemetryLogServices(t *testing.T) {
 
 func TestValidate_RejectsUnsafeEnvValue(t *testing.T) {
 	v := baseVars("local")
-	v.Env.OIDCCustomCA = "line1\nline2"
+	v.Vars["OIDC_CUSTOM_CA"] = "line1\nline2"
 	if _, err := v.Render(); err == nil {
 		t.Fatalf("expected validation error for env value containing newline")
 	}
@@ -301,7 +310,7 @@ func TestValidate_RejectsUnsafeEnvValue(t *testing.T) {
 
 func TestApplyDefaults_RespectsExplicitNames(t *testing.T) {
 	v := baseVars("local")
-	v.Env.NetsyBucket = "explicit-netsy"
+	v.Vars["NETSY_BUCKET"] = "explicit-netsy"
 	out, err := v.Render()
 	if err != nil {
 		t.Fatalf("Render: %v", err)
@@ -311,23 +320,16 @@ func TestApplyDefaults_RespectsExplicitNames(t *testing.T) {
 	}
 }
 
-func TestObjectStorageSetters_SetComponentFields(t *testing.T) {
-	v := &EnvVars{}
+func TestObjectStorageSetters_SetEndpointAndRegion(t *testing.T) {
+	v := MutableVars{}
 	v.SetObjectStorageEndpoint("https://object.example")
 	v.SetObjectStorageRegion("region-1")
-	v.SetObjectStorageCredentials("access", "secret")
 
-	if v.NetsyEndpoint != "https://object.example" || v.TelemetryEndpoint != "https://object.example" || v.RegistryEndpoint != "https://object.example" {
+	if v["NETSY_ENDPOINT"] != "https://object.example" || v["TELEMETRY_S3_ENDPOINT"] != "https://object.example" || v["REGISTRY_ENDPOINT"] != "https://object.example" {
 		t.Fatalf("expected shared object storage endpoint to be set on all components: %#v", v)
 	}
-	if v.NetsyRegion != "region-1" || v.TelemetryRegion != "region-1" || v.RegistryRegion != "region-1" {
+	if v["NETSY_REGION"] != "region-1" || v["TELEMETRY_S3_REGION"] != "region-1" || v["REGISTRY_REGION"] != "region-1" {
 		t.Fatalf("expected shared object storage region to be set on all components: %#v", v)
-	}
-	if v.NetsyAccessKeyID != "access" || v.TelemetryAccessKeyID != "access" || v.RegistryAccessKeyID != "access" {
-		t.Fatalf("expected shared object storage access key ID to be set on all components: %#v", v)
-	}
-	if v.NetsySecretAccessKey != "secret" || v.TelemetrySecretAccessKey != "secret" || v.RegistrySecretAccessKey != "secret" {
-		t.Fatalf("expected shared object storage secret access key to be set on all components: %#v", v)
 	}
 }
 

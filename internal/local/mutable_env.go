@@ -11,12 +11,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/nstance-dev/nstance/pkg/fakeserver"
-
-	"github.com/podplane/podplane/internal/userdata"
 )
 
 const (
@@ -34,55 +31,6 @@ type localPendingFile struct {
 // nstance delivery.
 func (l *Local) mutableEnvPath(clusterID string) string {
 	return filepath.Join(ClusterDataDir(l.dataDir, clusterID), localMutableEnvFilename)
-}
-
-// renderLocalMutableEnv renders the subset of user-data env that vmconfig's
-// update-mutable-env.sh accepts for post-boot updates.
-func renderLocalMutableEnv(env userdata.EnvVars) string {
-	lines := []string{
-		"SSH_AUTHORIZED_KEY=" + quoteLocalEnvValue(env.SSHAuthorizedKey),
-		"KUBE_API_PUBLIC_HOSTNAME=" + quoteLocalEnvValue(env.KubeAPIPublicHostname),
-		"KUBE_API_PORT=" + quoteLocalEnvValue(env.KubeAPIPort),
-		"NSTANCE_SERVER_REGISTRATION_ADDR=" + quoteLocalEnvValue(env.NstanceServerRegistrationAddr),
-		"NSTANCE_SERVER_AGENT_ADDR=" + quoteLocalEnvValue(env.NstanceServerAgentAddr),
-		"KUBE_API_ETCD_SERVERS=" + quoteLocalEnvValue(env.KubeAPIEtcdServers),
-		"OIDC_ISSUER=" + quoteLocalEnvValue(env.OIDCIssuer),
-		"OIDC_CUSTOM_CA=" + quoteLocalEnvValue(env.OIDCCustomCA),
-		"OIDC_CA_FILE=" + quoteLocalEnvValue(env.OIDCCAFile),
-		"KUBE_LOG_LEVEL=" + quoteLocalEnvValue(env.KubeLogLevel),
-		"NETSY_BUCKET=" + quoteLocalEnvValue(env.NetsyBucket),
-		"NETSY_ENDPOINT=" + quoteLocalEnvValue(env.NetsyEndpoint),
-		"NETSY_REGION=" + quoteLocalEnvValue(env.NetsyRegion),
-		"NETSY_ASSUME_ROLE=" + quoteLocalEnvValue(""),
-		"NETSY_ACCESS_KEY_ID=" + quoteLocalEnvValue(env.NetsyAccessKeyID),
-		"NETSY_SECRET_ACCESS_KEY=" + quoteLocalEnvValue(env.NetsySecretAccessKey),
-		"TELEMETRY_ENABLED=" + quoteLocalEnvValue("false"),
-		"TELEMETRY_LOG_SERVICES=" + quoteLocalEnvValue(env.TelemetryLogServices),
-		"TELEMETRY_LOG_CLOUDINIT=" + quoteLocalEnvValue(env.TelemetryLogCloudinit),
-		"TELEMETRY_S3_BUCKET=" + quoteLocalEnvValue(env.TelemetryBucket),
-		"TELEMETRY_S3_ENDPOINT=" + quoteLocalEnvValue(env.TelemetryEndpoint),
-		"TELEMETRY_S3_REGION=" + quoteLocalEnvValue(env.TelemetryRegion),
-		"TELEMETRY_S3_ASSUME_ROLE=" + quoteLocalEnvValue(""),
-		"TELEMETRY_S3_ACCESS_KEY_ID=" + quoteLocalEnvValue(env.TelemetryAccessKeyID),
-		"TELEMETRY_S3_SECRET_ACCESS_KEY=" + quoteLocalEnvValue(env.TelemetrySecretAccessKey),
-		"TELEMETRY_OTLP_ENDPOINT=" + quoteLocalEnvValue(""),
-		"REGISTRY_ENABLED=" + quoteLocalEnvValue(env.RegistryEnabled),
-		"REGISTRY_BUCKET=" + quoteLocalEnvValue(env.RegistryBucket),
-		"REGISTRY_HOSTNAME=" + quoteLocalEnvValue(env.RegistryHostname),
-		"REGISTRY_ENDPOINT=" + quoteLocalEnvValue(env.RegistryEndpoint),
-		"REGISTRY_REGION=" + quoteLocalEnvValue(env.RegistryRegion),
-		"REGISTRY_ASSUME_ROLE=" + quoteLocalEnvValue(""),
-		"REGISTRY_ACCESS_KEY_ID=" + quoteLocalEnvValue(env.RegistryAccessKeyID),
-		"REGISTRY_SECRET_ACCESS_KEY=" + quoteLocalEnvValue(env.RegistrySecretAccessKey),
-		"AWS_S3_USE_PATH_STYLE=" + quoteLocalEnvValue(env.AWSS3UsePathStyle),
-	}
-	return strings.Join(lines, "\n") + "\n"
-}
-
-// quoteLocalEnvValue quotes a value using the same single-quote format as the
-// vmconfig shell helpers that write env files inside the VM.
-func quoteLocalEnvValue(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 // writeMutableEnvBaseline records content as already available to the VM.

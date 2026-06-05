@@ -7,6 +7,7 @@ package deps
 import (
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 )
 
@@ -169,12 +170,19 @@ func (m *Manifest) HasVMConfigDep(filters ...ItemFilter) bool {
 }
 
 // InstallItems returns the dependencies that a running VM needs to install at
-// boot time. This excludes the OS image (the VM is already running on it) and
-// any unreleased vmconfig stubs.
+// boot time in deterministic order. This excludes the OS image (the VM is
+// already running on it) and any unreleased vmconfig stubs. Stable ordering
+// prevents semantically identical userdata from changing Nstance infra hashes.
 func (m *Manifest) InstallItems(filters ...ItemFilter) []Item {
 	filter := itemFilterFromArgs(filters)
 	items := make([]Item, 0, len(m.VMConfig.Dependencies))
-	for name, dep := range m.VMConfig.Dependencies {
+	names := make([]string, 0, len(m.VMConfig.Dependencies))
+	for name := range m.VMConfig.Dependencies {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		dep := m.VMConfig.Dependencies[name]
 		it := Item{Name: name, Dep: dep}
 		if it.IsUnreleasedVMConfigStub() {
 			continue

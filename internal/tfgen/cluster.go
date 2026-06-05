@@ -8,13 +8,22 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/podplane/podplane/internal/clusterconfig"
+	"github.com/podplane/podplane/internal/deps"
+	"github.com/podplane/podplane/internal/userdata"
 	"github.com/podplane/podplane/pkg/seeds"
 )
 
+// ClusterOptions provides dependency inputs needed to render cluster Terraform.
+type ClusterOptions struct {
+	DepsMirrorURL     string
+	VMConfigManifests map[string]*deps.Manifest
+}
+
 // GenerateCluster renders managed Terraform files for a cluster config path.
-func GenerateCluster(configPath string, cfg *clusterconfig.ClusterConfig) ([]File, error) {
+func GenerateCluster(configPath string, cfg *clusterconfig.ClusterConfig, opts ClusterOptions) ([]File, error) {
 	if err := clusterconfig.Validate(cfg); err != nil {
 		return nil, err
 	}
@@ -23,13 +32,13 @@ func GenerateCluster(configPath string, cfg *clusterconfig.ClusterConfig) ([]Fil
 		return nil, fmt.Errorf("cluster provider %q is not supported", provider.Kind)
 	}
 	return []File{
-		{Name: "podplane.cluster.tf", Content: renderAWSCluster(configPath, cfg, provider)},
+		{Name: "podplane.cluster.tf", Content: renderAWSCluster(configPath, cfg, provider, opts)},
 	}, nil
 }
 
 // WriteCluster writes managed Terraform files for a cluster config path.
-func WriteCluster(configPath string, cfg *clusterconfig.ClusterConfig) error {
-	files, err := GenerateCluster(configPath, cfg)
+func WriteCluster(configPath string, cfg *clusterconfig.ClusterConfig, opts ClusterOptions) error {
+	files, err := GenerateCluster(configPath, cfg, opts)
 	if err != nil {
 		return err
 	}
@@ -37,7 +46,7 @@ func WriteCluster(configPath string, cfg *clusterconfig.ClusterConfig) error {
 }
 
 // renderAWSCluster renders the AWS cluster Terraform file.
-func renderAWSCluster(configPath string, cfg *clusterconfig.ClusterConfig, provider clusterconfig.Provider) string {
+func renderAWSCluster(configPath string, cfg *clusterconfig.ClusterConfig, provider clusterconfig.Provider, opts ClusterOptions) string {
 	var doc hclDocument
 
 	terraform := block("terraform")
@@ -75,11 +84,43 @@ func renderAWSCluster(configPath string, cfg *clusterconfig.ClusterConfig, provi
 	region := block("data", "aws_region", "current")
 	doc.AddBlock(region)
 
-	mutableOverrides := block("variable", "mutable_env_overrides")
-	mutableOverrides.Body.Attr("description", str("Additional or overriding vmconfig mutable.env values."))
-	mutableOverrides.Body.Attr("type", expr("map(string)"))
-	mutableOverrides.Body.Attr("default", object())
-	doc.AddBlock(mutableOverrides)
+	mutableVars := []struct {
+		name        string
+		description string
+		typeExpr    string
+		defaultVal  hclValue
+	}{
+		{"ssh_authorized_key", "SSH public key allowed for VM login.", "string", str("")},
+		{"kube_api_etcd_servers", "etcd-compatible endpoint list used by kube-apiserver.", "string", str("")},
+		{"oidc_custom_ca", "Base64-encoded custom OIDC issuer CA certificate.", "string", str("")},
+		{"oidc_ca_file", "OIDC issuer CA file path on the VM.", "string", str("")},
+		{"kube_log_level", "Kubernetes component log verbosity.", "number", num(2)},
+		{"netsy_endpoint", "Custom Netsy object-storage endpoint URL.", "string", str("")},
+		{"netsy_access_key_id", "Netsy object-storage access key ID for non-IAM providers.", "string", str("")},
+		{"netsy_secret_access_key", "Netsy object-storage secret access key for non-IAM providers.", "string", str("")},
+		{"telemetry_enabled", "Enable VM telemetry/log forwarding.", "bool", hclBool(false)},
+		{"telemetry_log_services", "Comma-separated systemd services to include in telemetry logs.", "string", str("")},
+		{"telemetry_log_cloudinit", "Include cloud-init logs in telemetry.", "bool", hclBool(true)},
+		{"telemetry_s3_bucket", "Telemetry S3 bucket name.", "string", str("")},
+		{"telemetry_s3_endpoint", "Custom telemetry S3 endpoint URL.", "string", str("")},
+		{"telemetry_s3_assume_role", "Telemetry S3 IAM role ARN to assume.", "string", str("")},
+		{"telemetry_s3_access_key_id", "Telemetry S3 access key ID for non-IAM providers.", "string", str("")},
+		{"telemetry_s3_secret_access_key", "Telemetry S3 secret access key for non-IAM providers.", "string", str("")},
+		{"telemetry_otlp_endpoint", "OTLP endpoint for telemetry export.", "string", str("")},
+		{"registry_enabled", "Enable the VM-hosted registry service.", "bool", hclBool(true)},
+		{"registry_hostname", "Hostname used by clients to reach the registry.", "string", str("")},
+		{"registry_endpoint", "Custom registry object-storage endpoint URL.", "string", str("")},
+		{"registry_access_key_id", "Registry object-storage access key ID for non-IAM providers.", "string", str("")},
+		{"registry_secret_access_key", "Registry object-storage secret access key for non-IAM providers.", "string", str("")},
+		{"aws_s3_use_path_style", "Whether S3 clients should use path-style URLs.", "string", str("")},
+	}
+	for _, item := range mutableVars {
+		variable := block("variable", item.name)
+		variable.Body.Attr("description", str(item.description))
+		variable.Body.Attr("type", expr(item.typeExpr))
+		variable.Body.Attr("default", item.defaultVal)
+		doc.AddBlock(variable)
+	}
 
 	locals := block("locals")
 	locals.Body.Attr("cluster_name", str(cfg.Cluster.Name))
@@ -159,7 +200,7 @@ func renderAWSCluster(configPath string, cfg *clusterconfig.ClusterConfig, provi
 		shard.Body.Attr("network", expr("module."+networkName))
 		shard.Body.Attr("shard", str(zone))
 		shard.Body.Attr("zone", str(zone))
-		shard.Body.Attr("templates", templatesValue(cfg))
+		shard.Body.Attr("templates", templatesValue(cfg, opts, provider.Kind))
 		shard.Body.Attr("groups", groupsValue(cfg, provider))
 		doc.AddBlock(shard)
 	}
@@ -311,50 +352,49 @@ func addRegistryPolicyDocument(doc *hclDocument, name string, write bool) {
 }
 
 // mutableEnvValue returns the Terraform expression for vmconfig mutable.env
-// values generated from Terraform-managed resources plus user overrides.
+// values generated from Terraform-managed resources and generated variables.
 func mutableEnvValue() hclExpression {
-	return expr(`merge({
-  SSH_AUTHORIZED_KEY = ""
+	return expr(`{
+  SSH_AUTHORIZED_KEY = var.ssh_authorized_key
   KUBE_API_PUBLIC_HOSTNAME = local.kubernetes_api_hostname
   KUBE_API_PORT = tostring(local.kubernetes_api_port)
   KUBE_API_INTERNAL_LB_HOSTNAME = ""
-  NSTANCE_SERVER_REGISTRATION_ADDR = ""
-  NSTANCE_SERVER_AGENT_ADDR = ""
-  KUBE_API_ETCD_SERVERS = ""
+  NSTANCE_SERVER_REGISTRATION_ADDR = "{{ .Server.RegistrationAddr }}"
+  NSTANCE_SERVER_AGENT_ADDR = "{{ .Server.AgentAddr }}"
+  KUBE_API_ETCD_SERVERS = var.kube_api_etcd_servers
   OIDC_ISSUER = local.oidc_issuer_url
-  OIDC_CUSTOM_CA = ""
-  OIDC_CA_FILE = ""
-  KUBE_LOG_LEVEL = "2"
+  OIDC_CUSTOM_CA = var.oidc_custom_ca
+  OIDC_CA_FILE = var.oidc_ca_file
+  KUBE_LOG_LEVEL = tostring(var.kube_log_level)
 
   NETSY_BUCKET = aws_s3_bucket.netsy.bucket
-  NETSY_ENDPOINT = ""
-  NETSY_KEY_PREFIX = ""
+  NETSY_ENDPOINT = var.netsy_endpoint
   NETSY_ASSUME_ROLE = aws_iam_role.netsy.arn
   NETSY_REGION = local.aws_region
-  NETSY_ACCESS_KEY_ID = ""
-  NETSY_SECRET_ACCESS_KEY = ""
+  NETSY_ACCESS_KEY_ID = var.netsy_access_key_id
+  NETSY_SECRET_ACCESS_KEY = var.netsy_secret_access_key
 
-  TELEMETRY_ENABLED = "false"
-  TELEMETRY_LOG_SERVICES = ""
-  TELEMETRY_LOG_CLOUDINIT = "true"
-  TELEMETRY_S3_BUCKET = ""
-  TELEMETRY_S3_ENDPOINT = ""
+  TELEMETRY_ENABLED = tostring(var.telemetry_enabled)
+  TELEMETRY_LOG_SERVICES = var.telemetry_log_services
+  TELEMETRY_LOG_CLOUDINIT = tostring(var.telemetry_log_cloudinit)
+  TELEMETRY_S3_BUCKET = var.telemetry_s3_bucket
+  TELEMETRY_S3_ENDPOINT = var.telemetry_s3_endpoint
   TELEMETRY_S3_REGION = local.aws_region
-  TELEMETRY_S3_ASSUME_ROLE = ""
-  TELEMETRY_S3_ACCESS_KEY_ID = ""
-  TELEMETRY_S3_SECRET_ACCESS_KEY = ""
-  TELEMETRY_OTLP_ENDPOINT = ""
+  TELEMETRY_S3_ASSUME_ROLE = var.telemetry_s3_assume_role
+  TELEMETRY_S3_ACCESS_KEY_ID = var.telemetry_s3_access_key_id
+  TELEMETRY_S3_SECRET_ACCESS_KEY = var.telemetry_s3_secret_access_key
+  TELEMETRY_OTLP_ENDPOINT = var.telemetry_otlp_endpoint
 
-  REGISTRY_ENABLED = "true"
+  REGISTRY_ENABLED = tostring(var.registry_enabled)
   REGISTRY_BUCKET = aws_s3_bucket.registry.bucket
-  REGISTRY_HOSTNAME = ""
-  REGISTRY_ENDPOINT = ""
+  REGISTRY_HOSTNAME = var.registry_hostname
+  REGISTRY_ENDPOINT = var.registry_endpoint
   REGISTRY_REGION = local.aws_region
   REGISTRY_ASSUME_ROLE = aws_iam_role.registry_read_only.arn
-  REGISTRY_ACCESS_KEY_ID = ""
-  REGISTRY_SECRET_ACCESS_KEY = ""
-  AWS_S3_USE_PATH_STYLE = ""
-}, var.mutable_env_overrides)`)
+  REGISTRY_ACCESS_KEY_ID = var.registry_access_key_id
+  REGISTRY_SECRET_ACCESS_KEY = var.registry_secret_access_key
+  AWS_S3_USE_PATH_STYLE = var.aws_s3_use_path_style
+}`)
 }
 
 // subnetsValue converts provider zones into the network module subnets object.
@@ -493,13 +533,48 @@ func groupsValue(cfg *clusterconfig.ClusterConfig, provider clusterconfig.Provid
 }
 
 // templatesValue converts cluster pools into Nstance instance templates.
-func templatesValue(cfg *clusterconfig.ClusterConfig) hclObject {
+func templatesValue(cfg *clusterconfig.ClusterConfig, opts ClusterOptions, providerKind string) hclObject {
+	awsAccountID := ""
+	googleProjectID := ""
+	switch providerKind {
+	case "aws":
+		awsAccountID = "${local.aws_account_id}"
+	case "google":
+		googleProjectID = "${local.google_project_id}"
+	default:
+		panic(fmt.Errorf("cluster provider %q is not supported", providerKind))
+	}
+
 	fields := []hclObjectField{}
 	for _, poolName := range sortedKeys(cfg.Cluster.Pools) {
 		pool := cfg.Cluster.Pools[poolName]
+		kind := poolKind(poolName)
+		manifest := opts.VMConfigManifests[kind+"/"+pool.Arch]
+		if manifest == nil {
+			panic(fmt.Errorf("missing vmconfig manifest %s/%s", kind, pool.Arch))
+		}
+		userdataTemplate, err := userdata.SourceForNstance(manifest, opts.DepsMirrorURL, awsAccountID, googleProjectID)
+		if err != nil {
+			panic(err)
+		}
+		userdataTemplate = strings.ReplaceAll(userdataTemplate, "${", "$${")
+		userdataTemplate = strings.ReplaceAll(userdataTemplate, "$${local.aws_account_id}", "${local.aws_account_id}")
+		userdataTemplate = strings.ReplaceAll(userdataTemplate, "$${local.google_project_id}", "${local.google_project_id}")
 		fields = append(fields, field(poolName, object(
 			identField("kind", str(poolKind(poolName))),
 			identField("arch", str(pool.Arch)),
+			identField("vars", expr("local.mutable_env")),
+			identField("userdata", inlineObject(
+				identField("source", str("inline")),
+				identField("encoding", str("base64")),
+				identField("content", expr("base64encode("+quote(userdataTemplate)+")")),
+			)),
+			identField("files", inlineObject(
+				field("mutable.env", inlineObject(
+					identField("kind", str("env")),
+					identField("template", expr("local.mutable_env")),
+				)),
+			)),
 			identField("args", inlineObject(
 				identField("ImageId", str("{{ .Image.debian_13_"+pool.Arch+" }}")),
 			)),

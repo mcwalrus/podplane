@@ -14,6 +14,7 @@ import (
 	"github.com/podplane/podplane/internal/clusterconfig"
 	"github.com/podplane/podplane/internal/clustercreate"
 	"github.com/podplane/podplane/internal/config"
+	"github.com/podplane/podplane/internal/deps"
 	"github.com/podplane/podplane/internal/oidccreate"
 	"github.com/podplane/podplane/internal/tfexec"
 	"github.com/podplane/podplane/internal/tfgen"
@@ -38,6 +39,9 @@ func newClusterCreateCmd(c *config.Config) *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			// Load an existing cluster config, or create one first so the rest of
+			// the command can operate on a single resolved config value.
 			var cfg *clusterconfig.ClusterConfig
 			if _, err := os.Stat(path); os.IsNotExist(err) {
 				// Triggers `oidc create` flow if no existing issuer
@@ -61,8 +65,33 @@ func newClusterCreateCmd(c *config.Config) *cobra.Command {
 					return err
 				}
 			}
+
+			// Download vmconfig manifest and fail early if it cannot be fetched, since
+			// it's required to complete cluster creation (tf files embed the manifest).
+			depsManager := deps.NewManager(c.DepsBaseURL(), c.DepsCacheDir())
+			manifests := map[string]*deps.Manifest{}
+			for poolName, pool := range cfg.Cluster.Pools {
+				kind := "knd"
+				if poolName == "control-plane" {
+					kind = "knc"
+				}
+				key := kind + "/" + pool.Arch
+				if manifests[key] != nil {
+					continue
+				}
+				manifest, err := depsManager.EnsureVMConfigManifestCached(kind, pool.Arch)
+				if err != nil {
+					return fmt.Errorf("failed to prepare vmconfig manifest %s: %w", key, err)
+				}
+				manifests[key] = manifest
+			}
+
+			// Genereate tf files using cluster config + vmconfig manifest
 			dir := filepath.Dir(path)
-			if err := tfgen.WriteCluster(path, cfg); err != nil {
+			if err := tfgen.WriteCluster(path, cfg, tfgen.ClusterOptions{
+				DepsMirrorURL:     c.DepsBaseURL(),
+				VMConfigManifests: manifests,
+			}); err != nil {
 				return err
 			}
 			fmt.Printf("Generated Podplane OpenTofu/Terraform files in %s\n", dir)

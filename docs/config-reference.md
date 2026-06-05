@@ -121,6 +121,8 @@ This file is the user-facing projection of cluster configuration. It is created 
 
 ### Fields
 
+For the operational impact of changing cluster fields after initial deployment, including which changes are updated live (through an Nstance-pushed `mutable.env` file) and which changes cause Nstance to rotate Nstance-managed VMs, see [Change Impact: VMConfig Live Updates vs VM Rotation](vmconfig.md#change-impact-runtime-update-vs-vm-rotation).
+
 | Field | Description |
 |---|---|
 | `cluster.id` | Cluster identifier - lowercase alphanumeric and hypens, max 32 characters. Auto-generated from `name` by the CLI, used as a prefix for cloud resources and maps to Nstance `cluster_id`. |

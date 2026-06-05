@@ -23,10 +23,142 @@ data "aws_caller_identity" "current" {
 data "aws_region" "current" {
 }
 
-variable "mutable_env_overrides" {
-  description = "Additional or overriding vmconfig mutable.env values."
-  type = map(string)
-  default = {}
+variable "ssh_authorized_key" {
+  description = "SSH public key allowed for VM login."
+  type = string
+  default = ""
+}
+
+variable "kube_api_etcd_servers" {
+  description = "etcd-compatible endpoint list used by kube-apiserver."
+  type = string
+  default = ""
+}
+
+variable "oidc_custom_ca" {
+  description = "Base64-encoded custom OIDC issuer CA certificate."
+  type = string
+  default = ""
+}
+
+variable "oidc_ca_file" {
+  description = "OIDC issuer CA file path on the VM."
+  type = string
+  default = ""
+}
+
+variable "kube_log_level" {
+  description = "Kubernetes component log verbosity."
+  type = number
+  default = 2
+}
+
+variable "netsy_endpoint" {
+  description = "Custom Netsy object-storage endpoint URL."
+  type = string
+  default = ""
+}
+
+variable "netsy_access_key_id" {
+  description = "Netsy object-storage access key ID for non-IAM providers."
+  type = string
+  default = ""
+}
+
+variable "netsy_secret_access_key" {
+  description = "Netsy object-storage secret access key for non-IAM providers."
+  type = string
+  default = ""
+}
+
+variable "telemetry_enabled" {
+  description = "Enable VM telemetry/log forwarding."
+  type = bool
+  default = false
+}
+
+variable "telemetry_log_services" {
+  description = "Comma-separated systemd services to include in telemetry logs."
+  type = string
+  default = ""
+}
+
+variable "telemetry_log_cloudinit" {
+  description = "Include cloud-init logs in telemetry."
+  type = bool
+  default = true
+}
+
+variable "telemetry_s3_bucket" {
+  description = "Telemetry S3 bucket name."
+  type = string
+  default = ""
+}
+
+variable "telemetry_s3_endpoint" {
+  description = "Custom telemetry S3 endpoint URL."
+  type = string
+  default = ""
+}
+
+variable "telemetry_s3_assume_role" {
+  description = "Telemetry S3 IAM role ARN to assume."
+  type = string
+  default = ""
+}
+
+variable "telemetry_s3_access_key_id" {
+  description = "Telemetry S3 access key ID for non-IAM providers."
+  type = string
+  default = ""
+}
+
+variable "telemetry_s3_secret_access_key" {
+  description = "Telemetry S3 secret access key for non-IAM providers."
+  type = string
+  default = ""
+}
+
+variable "telemetry_otlp_endpoint" {
+  description = "OTLP endpoint for telemetry export."
+  type = string
+  default = ""
+}
+
+variable "registry_enabled" {
+  description = "Enable the VM-hosted registry service."
+  type = bool
+  default = true
+}
+
+variable "registry_hostname" {
+  description = "Hostname used by clients to reach the registry."
+  type = string
+  default = ""
+}
+
+variable "registry_endpoint" {
+  description = "Custom registry object-storage endpoint URL."
+  type = string
+  default = ""
+}
+
+variable "registry_access_key_id" {
+  description = "Registry object-storage access key ID for non-IAM providers."
+  type = string
+  default = ""
+}
+
+variable "registry_secret_access_key" {
+  description = "Registry object-storage secret access key for non-IAM providers."
+  type = string
+  default = ""
+}
+
+variable "aws_s3_use_path_style" {
+  description = "Whether S3 clients should use path-style URLs."
+  type = string
+  default = ""
 }
 
 locals {
@@ -45,48 +177,47 @@ locals {
   kubernetes_api_port = 6443
   kubernetes_cluster_cidr = []
   kubernetes_service_cidr = []
-  mutable_env = merge({
-    SSH_AUTHORIZED_KEY = ""
+  mutable_env = {
+    SSH_AUTHORIZED_KEY = var.ssh_authorized_key
     KUBE_API_PUBLIC_HOSTNAME = local.kubernetes_api_hostname
     KUBE_API_PORT = tostring(local.kubernetes_api_port)
     KUBE_API_INTERNAL_LB_HOSTNAME = ""
-    NSTANCE_SERVER_REGISTRATION_ADDR = ""
-    NSTANCE_SERVER_AGENT_ADDR = ""
-    KUBE_API_ETCD_SERVERS = ""
+    NSTANCE_SERVER_REGISTRATION_ADDR = "{{ .Server.RegistrationAddr }}"
+    NSTANCE_SERVER_AGENT_ADDR = "{{ .Server.AgentAddr }}"
+    KUBE_API_ETCD_SERVERS = var.kube_api_etcd_servers
     OIDC_ISSUER = local.oidc_issuer_url
-    OIDC_CUSTOM_CA = ""
-    OIDC_CA_FILE = ""
-    KUBE_LOG_LEVEL = "2"
+    OIDC_CUSTOM_CA = var.oidc_custom_ca
+    OIDC_CA_FILE = var.oidc_ca_file
+    KUBE_LOG_LEVEL = tostring(var.kube_log_level)
   
     NETSY_BUCKET = aws_s3_bucket.netsy.bucket
-    NETSY_ENDPOINT = ""
-    NETSY_KEY_PREFIX = ""
+    NETSY_ENDPOINT = var.netsy_endpoint
     NETSY_ASSUME_ROLE = aws_iam_role.netsy.arn
     NETSY_REGION = local.aws_region
-    NETSY_ACCESS_KEY_ID = ""
-    NETSY_SECRET_ACCESS_KEY = ""
+    NETSY_ACCESS_KEY_ID = var.netsy_access_key_id
+    NETSY_SECRET_ACCESS_KEY = var.netsy_secret_access_key
   
-    TELEMETRY_ENABLED = "false"
-    TELEMETRY_LOG_SERVICES = ""
-    TELEMETRY_LOG_CLOUDINIT = "true"
-    TELEMETRY_S3_BUCKET = ""
-    TELEMETRY_S3_ENDPOINT = ""
+    TELEMETRY_ENABLED = tostring(var.telemetry_enabled)
+    TELEMETRY_LOG_SERVICES = var.telemetry_log_services
+    TELEMETRY_LOG_CLOUDINIT = tostring(var.telemetry_log_cloudinit)
+    TELEMETRY_S3_BUCKET = var.telemetry_s3_bucket
+    TELEMETRY_S3_ENDPOINT = var.telemetry_s3_endpoint
     TELEMETRY_S3_REGION = local.aws_region
-    TELEMETRY_S3_ASSUME_ROLE = ""
-    TELEMETRY_S3_ACCESS_KEY_ID = ""
-    TELEMETRY_S3_SECRET_ACCESS_KEY = ""
-    TELEMETRY_OTLP_ENDPOINT = ""
+    TELEMETRY_S3_ASSUME_ROLE = var.telemetry_s3_assume_role
+    TELEMETRY_S3_ACCESS_KEY_ID = var.telemetry_s3_access_key_id
+    TELEMETRY_S3_SECRET_ACCESS_KEY = var.telemetry_s3_secret_access_key
+    TELEMETRY_OTLP_ENDPOINT = var.telemetry_otlp_endpoint
   
-    REGISTRY_ENABLED = "true"
+    REGISTRY_ENABLED = tostring(var.registry_enabled)
     REGISTRY_BUCKET = aws_s3_bucket.registry.bucket
-    REGISTRY_HOSTNAME = ""
-    REGISTRY_ENDPOINT = ""
+    REGISTRY_HOSTNAME = var.registry_hostname
+    REGISTRY_ENDPOINT = var.registry_endpoint
     REGISTRY_REGION = local.aws_region
     REGISTRY_ASSUME_ROLE = aws_iam_role.registry_read_only.arn
-    REGISTRY_ACCESS_KEY_ID = ""
-    REGISTRY_SECRET_ACCESS_KEY = ""
-    AWS_S3_USE_PATH_STYLE = ""
-  }, var.mutable_env_overrides)
+    REGISTRY_ACCESS_KEY_ID = var.registry_access_key_id
+    REGISTRY_SECRET_ACCESS_KEY = var.registry_secret_access_key
+    AWS_S3_USE_PATH_STYLE = var.aws_s3_use_path_style
+  }
 }
 
 module "cluster" {
@@ -266,6 +397,9 @@ module "shard_us_east_1a" {
     "control-plane" = {
       kind = "knc"
       arch = "arm64"
+      vars = local.mutable_env
+      userdata = { source = "inline", encoding = "base64", content = base64encode("#!/bin/bash -e\n# Podplane VM userdata (rendered).\n# Provider: {{ .Provider.Kind }}\n# Cluster ID: {{ .Cluster.ID }}\n# Instance ID: {{ .Instance.ID }}\n# Manifest version: 2026.01.01\n# OS: debian-13\n# Arch: arm64\n# Cluster bucket names (cluster-prefixed):\n#   netsy={{ .Vars.NETSY_BUCKET }}\n#   registry={{ .Vars.REGISTRY_BUCKET }}\n#   telemetry={{ .Vars.TELEMETRY_S3_BUCKET }}\n# OIDC Issuer: {{ .Vars.OIDC_ISSUER }}\n# Deps Mirror=https://cli.podplane.dev/deps\nset -euo pipefail\n\necho \"Podplane cloud-init user-data script has started.\"\n# ----------------------------------------------------------------------------\n\n# --- 1. Configure hostname --------------------------------------------------\n\nhostnamectl set-hostname {{ .Instance.ID }}\n\n\n# --- 2. Download and verify dependencies ------------------------------------\n\nARTIFACTS_DIR=\"/opt/podplane/artifacts\"\nmkdir -p \"$ARTIFACTS_DIR\"\n\necho \"Downloading 2 dependencies...\"\ncurl -sfL --parallel --parallel-max 10 --parallel-immediate \\\n  -o \"$${ARTIFACTS_DIR}/runc\" \"https://cli.podplane.dev/deps/vmconfig/artifacts/runc/1.2.3/runc\" \\\n  -o \"$${ARTIFACTS_DIR}/vmconfig.tar.gz\" \"https://cli.podplane.dev/deps/vmconfig/artifacts/vmconfig/2026.01.01/vmconfig.tar.gz\" \\\n  >/dev/null\n\necho \"Verifying checksums...\"\nwhile read -r digest filename; do\n  case \"$digest\" in\n    sha256:*) echo \"$${digest#sha256:}  $${filename}\" | sha256sum -c --quiet ;;\n    sha512:*) echo \"$${digest#sha512:}  $${filename}\" | sha512sum -c --quiet ;;\n    *) echo \"Unsupported digest algorithm for $${filename}: $${digest}\" >&2; exit 1 ;;\n  esac\ndone <<CHECKSUMS\nsha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  $${ARTIFACTS_DIR}/runc\nsha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  $${ARTIFACTS_DIR}/vmconfig.tar.gz\nCHECKSUMS\n\n# --- 3. Extract vmconfig tarball --------------------------------------------\n\necho \"Extracting vmconfig.tar.gz...\"\ntar -xzf \"$${ARTIFACTS_DIR}/vmconfig.tar.gz\" -C /\n\n\n# --- 4. Write user-data environment file ------------------------------------\n\necho \"Writing user-data.env file...\"\nmkdir -p /opt/podplane/etc\ncat > /opt/podplane/etc/user-data.env <<'USERDATA_ENV'\nSSH_AUTHORIZED_KEY='{{ .Vars.SSH_AUTHORIZED_KEY }}'\n\nINSTANCE_ID='{{ .Instance.ID }}'\nCLUSTER_ID='{{ .Cluster.ID }}'\n\nPROVIDER_KIND='{{ .Provider.Kind }}'\nPROVIDER_REGION='{{ .Provider.Region }}'\nPROVIDER_ZONE='{{ .Provider.Zone }}'\nPROVIDER_INSTANCE_TYPE='{{ .Instance.Type }}'\nAWS_ACCOUNT_ID='${local.aws_account_id}'\nGOOGLE_PROJECT_ID=''\n\nOIDC_ISSUER='{{ .Vars.OIDC_ISSUER }}'\nOIDC_CUSTOM_CA='{{ .Vars.OIDC_CUSTOM_CA }}'\nOIDC_CA_FILE='{{ .Vars.OIDC_CA_FILE }}'\n\nKUBE_LOG_LEVEL='{{ .Vars.KUBE_LOG_LEVEL }}'\nKUBE_API_PUBLIC_HOSTNAME='{{ .Vars.KUBE_API_PUBLIC_HOSTNAME }}'\nKUBE_API_PORT='{{ .Vars.KUBE_API_PORT }}'\nKUBE_API_INTERNAL_LB_HOSTNAME='{{ .Vars.KUBE_API_INTERNAL_LB_HOSTNAME }}'\nKUBE_API_ETCD_SERVERS='{{ .Vars.KUBE_API_ETCD_SERVERS }}'\n\nNSTANCE_CA_CERT='{{ .Cluster.CACert }}'\nNSTANCE_SERVER_REGISTRATION_ADDR='{{ .Server.RegistrationAddr }}'\nNSTANCE_SERVER_AGENT_ADDR='{{ .Server.AgentAddr }}'\n\nNETSY_BUCKET='{{ .Vars.NETSY_BUCKET }}'\nNETSY_ENDPOINT='{{ .Vars.NETSY_ENDPOINT }}'\nNETSY_REGION='{{ .Vars.NETSY_REGION }}'\nNETSY_ASSUME_ROLE='{{ .Vars.NETSY_ASSUME_ROLE }}'\nNETSY_ACCESS_KEY_ID='{{ .Vars.NETSY_ACCESS_KEY_ID }}'\nNETSY_SECRET_ACCESS_KEY='{{ .Vars.NETSY_SECRET_ACCESS_KEY }}'\n\nTELEMETRY_ENABLED='{{ .Vars.TELEMETRY_ENABLED }}'\nTELEMETRY_S3_BUCKET='{{ .Vars.TELEMETRY_S3_BUCKET }}'\nTELEMETRY_S3_ENDPOINT='{{ .Vars.TELEMETRY_S3_ENDPOINT }}'\nTELEMETRY_S3_REGION='{{ .Vars.TELEMETRY_S3_REGION }}'\nTELEMETRY_S3_ASSUME_ROLE='{{ .Vars.TELEMETRY_S3_ASSUME_ROLE }}'\nTELEMETRY_LOG_SERVICES='{{ .Vars.TELEMETRY_LOG_SERVICES }}'\nTELEMETRY_LOG_CLOUDINIT='{{ .Vars.TELEMETRY_LOG_CLOUDINIT }}'\nTELEMETRY_S3_ACCESS_KEY_ID='{{ .Vars.TELEMETRY_S3_ACCESS_KEY_ID }}'\nTELEMETRY_S3_SECRET_ACCESS_KEY='{{ .Vars.TELEMETRY_S3_SECRET_ACCESS_KEY }}'\nTELEMETRY_OTLP_ENDPOINT='{{ .Vars.TELEMETRY_OTLP_ENDPOINT }}'\n\nREGISTRY_ENABLED='{{ .Vars.REGISTRY_ENABLED }}'\nREGISTRY_BUCKET='{{ .Vars.REGISTRY_BUCKET }}'\nREGISTRY_HOSTNAME='{{ .Vars.REGISTRY_HOSTNAME }}'\nREGISTRY_ENDPOINT='{{ .Vars.REGISTRY_ENDPOINT }}'\nREGISTRY_REGION='{{ .Vars.REGISTRY_REGION }}'\nREGISTRY_ASSUME_ROLE='{{ .Vars.REGISTRY_ASSUME_ROLE }}'\nREGISTRY_ACCESS_KEY_ID='{{ .Vars.REGISTRY_ACCESS_KEY_ID }}'\nREGISTRY_SECRET_ACCESS_KEY='{{ .Vars.REGISTRY_SECRET_ACCESS_KEY }}'\nAWS_S3_USE_PATH_STYLE='{{ .Vars.AWS_S3_USE_PATH_STYLE }}'\nUSERDATA_ENV\nchmod 0600 /opt/podplane/etc/user-data.env\n\n# --- 5. Write sensitive nstance bootstrap files -----------------------------\necho \"Writing nstance registration nonce file...\"\nmkdir -p /opt/nstance-agent/identity\ncat > /opt/nstance-agent/identity/nonce.jwt <<'NSTANCE_NONCE_JWT'\n{{ .Nonce }}\nNSTANCE_NONCE_JWT\ncat > /opt/nstance-agent/identity/ca.crt <<'NSTANCE_CA_CERT'\n{{ .Cluster.CACert }}\nNSTANCE_CA_CERT\nchmod 0600 /opt/nstance-agent/identity/nonce.jwt /opt/nstance-agent/identity/ca.crt\n\n\n# -- 6. Run install.sh -------------------------------------------------------\n\n\n\necho \"Running install.sh...\"\nchmod +x /opt/podplane/bin/install.sh\n/opt/podplane/bin/install.sh\n\n# --- 7. Run configure.sh ----------------------------------------------------\necho \"Running configure.sh...\"\nchmod +x /opt/podplane/bin/configure.sh\n/opt/podplane/bin/configure.sh\n\n# --- 8. Restart services ----------------------------------------------------\necho \"Running restart.sh...\"\nchmod +x /opt/podplane/bin/restart.sh\n/opt/podplane/bin/restart.sh\n\n# ----------------------------------------------------------------------------\necho \"Podplane cloud-init user-data script has completed successfully.\"\n") }
+      files = { "mutable.env" = { kind = "env", template = local.mutable_env } }
       args = { ImageId = "{{ .Image.debian_13_arm64 }}" }
     }
   }
