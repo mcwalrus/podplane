@@ -5,11 +5,14 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/podplane/podplane/internal/config"
+	"github.com/spf13/cobra"
 )
 
 const validClusterConfigJSON = `{
@@ -80,4 +83,55 @@ func TestClusterDeleteNoApplyValidatesOnly(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("cluster delete --no-apply returned error: %v", err)
 	}
+}
+
+func TestSilenceUsageAfterValidationSuppressesRuntimeUsage(t *testing.T) {
+	cmd := testUsageCommand(t)
+	cmd.SetArgs([]string{"run", "ok"})
+	var stdout strings.Builder
+	var stderr strings.Builder
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected runtime error")
+	}
+	output := stdout.String() + stderr.String()
+	if strings.Contains(output, "Usage:") {
+		t.Fatalf("runtime error printed usage: %q", output)
+	}
+}
+
+func TestSilenceUsageAfterValidationKeepsArgValidationUsage(t *testing.T) {
+	cmd := testUsageCommand(t)
+	cmd.SetArgs([]string{"run"})
+	var stdout strings.Builder
+	var stderr strings.Builder
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected argument validation error")
+	}
+	output := stdout.String() + stderr.String()
+	if !strings.Contains(output, "Usage:") {
+		t.Fatalf("argument validation error did not print usage: %q", output)
+	}
+}
+
+func testUsageCommand(t *testing.T) *cobra.Command {
+	t.Helper()
+	root := &cobra.Command{
+		Use: "test",
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			cmd.SilenceUsage = true
+		},
+	}
+	cmd := &cobra.Command{
+		Use:  "run [arg]",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return errors.New("runtime failed")
+		},
+	}
+	root.AddCommand(cmd)
+	return root
 }
