@@ -113,6 +113,7 @@ func renderAWSCluster(configPath string, cfg *clusterconfig.ClusterConfig, provi
 		{"registry_access_key_id", "Registry object-storage access key ID for non-IAM providers.", "string", str("")},
 		{"registry_secret_access_key", "Registry object-storage secret access key for non-IAM providers.", "string", str("")},
 		{"aws_s3_use_path_style", "Whether S3 clients should use path-style URLs.", "string", str("")},
+		{"enable_ssm", "Enable AWS Systems Manager Session Manager access for cluster VMs.", "bool", hclBool(true)},
 	}
 	for _, item := range mutableVars {
 		variable := block("variable", item.name)
@@ -170,6 +171,7 @@ func renderAWSCluster(configPath string, cfg *clusterconfig.ClusterConfig, provi
 	account := block("module", accountName)
 	account.Body.Attr("source", str("nstance-dev/nstance/aws//modules/account"))
 	account.Body.Attr("cluster", expr("module.cluster"))
+	account.Body.Attr("enable_ssm", expr("var.enable_ssm"))
 	mainDoc.AddBlock(account)
 
 	addPodplaneAWSStorageAndRoles(&mainDoc, accountName)
@@ -177,6 +179,7 @@ func renderAWSCluster(configPath string, cfg *clusterconfig.ClusterConfig, provi
 	network := block("module", networkName)
 	network.Body.Attr("source", str("nstance-dev/nstance/aws//modules/network"))
 	network.Body.Attr("cluster", expr("module.cluster"))
+	network.Body.Attr("enable_ssm", expr("var.enable_ssm"))
 	if provider.VPC.ID != "" {
 		network.Body.Attr("vpc_id", str(provider.VPC.ID))
 	} else {
@@ -200,6 +203,7 @@ func renderAWSCluster(configPath string, cfg *clusterconfig.ClusterConfig, provi
 		shard.Body.Attr("network", expr("module."+networkName))
 		shard.Body.Attr("shard", str(zone))
 		shard.Body.Attr("zone", str(zone))
+		shard.Body.Attr("enable_ssm", expr("var.enable_ssm"))
 		shard.Body.Attr("templates", templatesValue(cfg, opts, provider.Kind))
 		shard.Body.Attr("groups", groupsValue(cfg, provider))
 		mainDoc.AddBlock(shard)
@@ -587,7 +591,7 @@ func templatesValue(cfg *clusterconfig.ClusterConfig, opts ClusterOptions, provi
 		if manifest == nil {
 			panic(fmt.Errorf("missing vmconfig manifest %s/%s", kind, pool.Arch))
 		}
-		userdataTemplate, err := userdata.SourceForNstance(manifest, opts.DepsMirrorURL, awsAccountID, googleProjectID)
+		userdataTemplate, err := userdata.SourceForNstance(manifest, opts.DepsMirrorURL, providerKind, awsAccountID, googleProjectID)
 		if err != nil {
 			panic(err)
 		}

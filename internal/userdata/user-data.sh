@@ -15,6 +15,7 @@
 # Deps Mirror={{.DepsMirrorURL}}
 {{- end}}
 set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
 
 echo "Podplane cloud-init user-data script has started."
 # ----------------------------------------------------------------------------
@@ -25,7 +26,48 @@ hostnamectl set-hostname {{.Instance.ID}}
 {{if eq .Provider.Kind "local"}}echo "debian:devonly" | chpasswd
 {{end}}
 
-# --- 2. Download and verify dependencies ------------------------------------
+# --- 2. Bootstrap provider-specific tools -----------------------------------
+
+{{if eq .Provider.Kind "aws"}}
+%{ if var.enable_ssm ~}
+echo "Ensuring AWS SSM Agent is installed and running..."
+if command -v snap >/dev/null 2>&1 && snap list amazon-ssm-agent >/dev/null 2>&1; then
+  snap start amazon-ssm-agent
+elif dpkg -s amazon-ssm-agent >/dev/null 2>&1; then
+  systemctl enable --now amazon-ssm-agent
+else
+  curl -fsSL -o /tmp/amazon-ssm-agent.deb \
+    "https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/debian_{{.Manifest.VMConfig.OS.Arch}}/amazon-ssm-agent.deb"
+  dpkg -i /tmp/amazon-ssm-agent.deb
+  rm -f /tmp/amazon-ssm-agent.deb
+  systemctl enable --now amazon-ssm-agent
+fi
+%{ endif ~}
+{{end}}
+
+# --- 3. Check connectivity to Nstance Server --------------------------------
+
+REGISTRATION_ADDR="{{.Server.RegistrationAddr}}"
+echo "Checking connectivity to nstance-server at $REGISTRATION_ADDR..."
+attempt=0
+while true
+do
+  attempt=$((attempt + 1))
+  if timeout 5 bash -c "echo > /dev/tcp/${REGISTRATION_ADDR%:*}/${REGISTRATION_ADDR##*:}" 2>/dev/null
+  then
+    echo "Connection successful!"
+    break
+  fi
+  retry_in=15
+  if [ $attempt -lt 3 ]
+  then
+    retry_in=3
+  fi
+  echo "Failed to connect to nstance-server at $REGISTRATION_ADDR (attempt $attempt), retrying in $retry_in seconds..."
+  sleep $retry_in
+done
+
+# --- 4. Download and verify dependencies ------------------------------------
 
 ARTIFACTS_DIR="/opt/podplane/artifacts"
 mkdir -p "$ARTIFACTS_DIR"
@@ -50,7 +92,7 @@ done <<CHECKSUMS
 {{- end}}
 CHECKSUMS
 
-# --- 3. Extract vmconfig tarball --------------------------------------------
+# --- 5. Extract vmconfig tarball --------------------------------------------
 {{if .Manifest.HasVMConfigDep .ManifestFilter}}
 echo "Extracting vmconfig.tar.gz..."
 tar -xzf "${ARTIFACTS_DIR}/vmconfig.tar.gz" -C /
@@ -58,7 +100,7 @@ tar -xzf "${ARTIFACTS_DIR}/vmconfig.tar.gz" -C /
 # skipped
 {{- end}}
 
-# --- 4. Write user-data environment file ------------------------------------
+# --- 6. Write user-data environment file ------------------------------------
 
 echo "Writing user-data.env file..."
 mkdir -p /opt/podplane/etc
@@ -119,7 +161,7 @@ AWS_S3_USE_PATH_STYLE='{{.Vars.AWS_S3_USE_PATH_STYLE}}'
 USERDATA_ENV
 chmod 0600 /opt/podplane/etc/user-data.env
 
-# --- 5. Write sensitive nstance bootstrap files -----------------------------
+# --- 7. Write sensitive nstance bootstrap files -----------------------------
 
 {{- if .Nonce}}
 echo "Writing nstance registration nonce file..."
@@ -135,7 +177,7 @@ chmod 0600 /opt/nstance-agent/identity/nonce.jwt /opt/nstance-agent/identity/ca.
 # skipped
 {{- end}}
 
-# -- 6. Run install.sh -------------------------------------------------------
+# -- 8. Run install.sh -------------------------------------------------------
 
 {{if not (.Manifest.HasVMConfigDep .ManifestFilter)}}
 {{if eq .Provider.Kind "local"}}
@@ -156,7 +198,7 @@ echo "Running install.sh..."
 chmod +x /opt/podplane/bin/install.sh
 /opt/podplane/bin/install.sh
 
-# --- 7. Run configure.sh ----------------------------------------------------
+# --- 9. Run configure.sh ----------------------------------------------------
 echo "Running configure.sh..."
 chmod +x /opt/podplane/bin/configure.sh
 /opt/podplane/bin/configure.sh
@@ -217,7 +259,7 @@ fi
 
 systemctl disable unattended-upgrades || true
 {{end}}
-# --- 8. Restart services ----------------------------------------------------
+# --- 10. Restart services ---------------------------------------------------
 echo "Running restart.sh..."
 chmod +x /opt/podplane/bin/restart.sh
 /opt/podplane/bin/restart.sh

@@ -135,3 +135,9 @@ variable "aws_s3_use_path_style" {
   type = string
   default = ""
 }
+
+variable "enable_ssm" {
+  description = "Enable AWS Systems Manager Session Manager access for cluster VMs."
+  type = bool
+  default = true
+}

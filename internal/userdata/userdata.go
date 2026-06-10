@@ -335,7 +335,7 @@ func (v *TemplateVars) Render() (string, error) {
 
 // SourceForNstance renders the canonical userdata template into the template
 // source nstance-server renders later for each VM.
-func SourceForNstance(manifest *deps.Manifest, depsMirrorURL string, awsAccountID string, googleProjectID string) (string, error) {
+func SourceForNstance(manifest *deps.Manifest, depsMirrorURL string, providerKind string, awsAccountID string, googleProjectID string) (string, error) {
 	vars := TemplateVars{
 		Manifest:      manifest,
 		DepsMirrorURL: depsMirrorURL,
@@ -344,7 +344,7 @@ func SourceForNstance(manifest *deps.Manifest, depsMirrorURL string, awsAccountI
 			CACert: "{{ .Cluster.CACert }}",
 		},
 		Provider: ProviderData{
-			Kind:   "{{ .Provider.Kind }}",
+			Kind:   providerKind,
 			Region: "{{ .Provider.Region }}",
 			Zone:   "{{ .Provider.Zone }}",
 		},

@@ -159,6 +159,9 @@ func TestRender_Local_HasDebianPasswordLine(t *testing.T) {
 	if strings.Contains(out, "NSTANCE_REGISTRATION_NONCE_JWT=") {
 		t.Errorf("did not expect nstance registration nonce to be written to user-data.env; got:\n%s", out)
 	}
+	if strings.Contains(out, "amazon-ssm-agent") {
+		t.Errorf("did not expect local user-data to include AWS SSM bootstrap; got:\n%s", out)
+	}
 	if !strings.Contains(out, "cat > /opt/nstance-agent/identity/nonce.jwt <<'NSTANCE_NONCE_JWT'\nnonce.jwt.value\nNSTANCE_NONCE_JWT") {
 		t.Errorf("expected nstance registration nonce to be written directly to nonce.jwt; got:\n%s", out)
 	}
@@ -197,6 +200,18 @@ func TestRender_AWS_NoDebianPasswordLine(t *testing.T) {
 	}
 	if strings.Contains(out, "/opt/podplane/bin/configure.sh false") {
 		t.Errorf("did not expect aws user-data to suppress service restarts; got:\n%s", out)
+	}
+	if !strings.Contains(out, "Ensuring AWS SSM Agent is installed and running") {
+		t.Errorf("expected aws user-data to install SSM agent; got:\n%s", out)
+	}
+	if !strings.Contains(out, "amazon-ssm-agent.deb") {
+		t.Errorf("expected aws user-data to download SSM agent deb; got:\n%s", out)
+	}
+	if !strings.Contains(out, "Checking connectivity to nstance-server") {
+		t.Errorf("expected aws user-data to check nstance-server connectivity; got:\n%s", out)
+	}
+	if !strings.Contains(out, "/dev/tcp/${REGISTRATION_ADDR%:*}/${REGISTRATION_ADDR##*:}") {
+		t.Errorf("expected aws user-data to use TCP connectivity check; got:\n%s", out)
 	}
 	if !strings.Contains(out, "/opt/podplane/bin/restart.sh") {
 		t.Errorf("expected aws user-data to run restart.sh directly; got:\n%s", out)
