@@ -278,7 +278,7 @@ func addPodplaneAWSStorageAndRoles(doc *hclDocument, accountName string) {
 	statement.Body.Attr("actions", stringValueList([]string{"sts:AssumeRole"}))
 	principals := block("principals")
 	principals.Body.Attr("type", str("AWS"))
-	principals.Body.Attr("identifiers", list(expr("module."+accountName+".knc_iam_role_arn")))
+	principals.Body.Attr("identifiers", list(expr("module."+accountName+".agent_iam_role_arn")))
 	statement.Body.Block(principals)
 	assume.Body.Block(statement)
 	doc.AddBlock(assume)
@@ -286,6 +286,7 @@ func addPodplaneAWSStorageAndRoles(doc *hclDocument, accountName string) {
 	addIAMRoleWithInlinePolicy(doc, "netsy", "${local.name_prefix}-netsy", "data.aws_iam_policy_document.netsy.json")
 	addIAMRoleWithInlinePolicy(doc, "registry_read_only", "${local.name_prefix}-registry-read-only", "data.aws_iam_policy_document.registry_read_only.json")
 	addIAMRoleWithInlinePolicy(doc, "registry_read_write", "${local.name_prefix}-registry-read-write", "data.aws_iam_policy_document.registry_read_write.json")
+	addPodplaneKNCPolicy(doc, accountName)
 
 	addNetsyPolicyDocument(doc)
 	addRegistryPolicyDocument(doc, "registry_read_only", false)
@@ -305,6 +306,35 @@ func addIAMRoleWithInlinePolicy(doc *hclDocument, name string, roleName string, 
 	policy.Body.Attr("role", expr("aws_iam_role."+name+".id"))
 	policy.Body.Attr("policy", expr(policyDocument))
 	doc.AddBlock(policy)
+}
+
+// addPodplaneKNCPolicy allows Podplane worker nodes to assume only the
+// Podplane-generated workload roles they need.
+func addPodplaneKNCPolicy(doc *hclDocument, accountName string) {
+	policy := block("data", "aws_iam_policy_document", "podplane_knc")
+
+	assumeWorkloadRoles := block("statement")
+	assumeWorkloadRoles.Body.Attr("sid", str("AssumePodplaneWorkloadRoles"))
+	assumeWorkloadRoles.Body.Attr("actions", stringValueList([]string{"sts:AssumeRole"}))
+	assumeWorkloadRoles.Body.Attr("resources", list(
+		expr("aws_iam_role.netsy.arn"),
+		expr("aws_iam_role.registry_read_only.arn"),
+		expr("aws_iam_role.registry_read_write.arn"),
+	))
+	policy.Body.Block(assumeWorkloadRoles)
+
+	describeRegions := block("statement")
+	describeRegions.Body.Attr("sid", str("DescribeRegions"))
+	describeRegions.Body.Attr("actions", stringValueList([]string{"ec2:DescribeRegions"}))
+	describeRegions.Body.Attr("resources", stringValueList([]string{"*"}))
+	policy.Body.Block(describeRegions)
+	doc.AddBlock(policy)
+
+	rolePolicy := block("resource", "aws_iam_role_policy", "podplane_knc")
+	rolePolicy.Body.Attr("name", str("${local.name_prefix}-podplane-knc-policy"))
+	rolePolicy.Body.Attr("role", expr("module."+accountName+".agent_iam_role_name"))
+	rolePolicy.Body.Attr("policy", expr("data.aws_iam_policy_document.podplane_knc.json"))
+	doc.AddBlock(rolePolicy)
 }
 
 // addNetsyPolicyDocument adds the Netsy object-storage read/write policy.

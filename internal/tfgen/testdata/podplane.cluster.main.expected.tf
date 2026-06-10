@@ -143,7 +143,7 @@ data "aws_iam_policy_document" "assume_from_knc" {
 
     principals {
       type = "AWS"
-      identifiers = [module.account_123456789012_us_east_1.knc_iam_role_arn]
+      identifiers = [module.account_123456789012_us_east_1.agent_iam_role_arn]
     }
   }
 }
@@ -179,6 +179,26 @@ resource "aws_iam_role_policy" "registry_read_write" {
   name = "${local.name_prefix}-registry-read-write-policy"
   role = aws_iam_role.registry_read_write.id
   policy = data.aws_iam_policy_document.registry_read_write.json
+}
+
+data "aws_iam_policy_document" "podplane_knc" {
+  statement {
+    sid = "AssumePodplaneWorkloadRoles"
+    actions = ["sts:AssumeRole"]
+    resources = [aws_iam_role.netsy.arn, aws_iam_role.registry_read_only.arn, aws_iam_role.registry_read_write.arn]
+  }
+
+  statement {
+    sid = "DescribeRegions"
+    actions = ["ec2:DescribeRegions"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "podplane_knc" {
+  name = "${local.name_prefix}-podplane-knc-policy"
+  role = module.account_123456789012_us_east_1.agent_iam_role_name
+  policy = data.aws_iam_policy_document.podplane_knc.json
 }
 
 data "aws_iam_policy_document" "netsy" {
