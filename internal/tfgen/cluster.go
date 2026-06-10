@@ -51,16 +51,16 @@ func renderAWSCluster(configPath string, cfg *clusterconfig.ClusterConfig, provi
 
 	terraform := block("terraform")
 	terraform.Body.Attr("required_version", str(">= 1.6.0"))
-	terraform.Body.Attr("required_providers", object(
-		field("aws", object(
-			identField("source", str("hashicorp/aws")),
-			identField("version", str(">= 6.0")),
-		)),
-		field("podplane", object(
-			identField("source", str("podplane/podplane")),
-			identField("version", str(">= 1.0.0")),
-		)),
+	requiredProviders := block("required_providers")
+	requiredProviders.Body.Attr("aws", object(
+		identField("source", str("hashicorp/aws")),
+		identField("version", str(">= 6.0")),
 	))
+	requiredProviders.Body.Attr("podplane", object(
+		identField("source", str("podplane/podplane")),
+		identField("version", str(">= 1.0.0")),
+	))
+	terraform.Body.Block(requiredProviders)
 	mainDoc.AddBlock(terraform)
 
 	awsProvider := block("provider", "aws")

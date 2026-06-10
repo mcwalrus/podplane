@@ -41,12 +41,12 @@ func renderAWSOIDC(cfg *oidcconfig.Config) []File {
 
 	terraform := block("terraform")
 	terraform.Body.Attr("required_version", str(">= 1.6.0"))
-	terraform.Body.Attr("required_providers", object(
-		field("aws", object(
-			identField("source", str("hashicorp/aws")),
-			identField("version", str(">= 6.0")),
-		)),
+	requiredProviders := block("required_providers")
+	requiredProviders.Body.Attr("aws", object(
+		identField("source", str("hashicorp/aws")),
+		identField("version", str(">= 6.0")),
 	))
+	terraform.Body.Block(requiredProviders)
 	mainDoc.AddBlock(terraform)
 
 	provider := block("provider", "aws")
