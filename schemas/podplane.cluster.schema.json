@@ -1,0 +1,322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://podplane.dev/schemas/podplane.cluster.schema.json",
+  "title": "Podplane cluster config",
+  "description": "Configuration for a Podplane Kubernetes cluster. This file is the human-authored source of truth used to generate managed OpenTofu/Terraform files.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cluster"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Path or URL to the JSON Schema for editor validation and completion. Podplane writes a local relative path so config editing works offline."
+    },
+    "cluster": { "$ref": "#/$defs/cluster" }
+  },
+  "$defs": {
+    "cluster": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "oidc"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable cluster slug used in resource names, kubeconfig keys, generated infrastructure, and state locations.",
+          "maxLength": 32,
+          "pattern": "^(?!.*--)[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable cluster name."
+        },
+        "oidc": { "$ref": "#/$defs/oidc" },
+        "acme": { "$ref": "#/$defs/acme" },
+        "domains": {
+          "type": "array",
+          "description": "DNS zones and providers used by cluster ingress and certificate automation.",
+          "items": { "$ref": "#/$defs/domain" }
+        },
+        "pools": {
+          "type": "object",
+          "description": "Named VM pools. Pool names are referenced by subnets and load-balancer listeners.",
+          "additionalProperties": { "$ref": "#/$defs/pool" }
+        },
+        "providers": {
+          "type": "array",
+          "description": "Cloud provider infrastructure configuration. Cluster create currently supports AWS.",
+          "items": { "$ref": "#/$defs/provider" }
+        },
+        "kubernetes": { "$ref": "#/$defs/kubernetes" },
+        "seed": { "$ref": "#/$defs/seed" },
+        "components": { "$ref": "#/$defs/components" }
+      }
+    },
+    "oidc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["issuer_url"],
+      "properties": {
+        "issuer_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "OIDC issuer URL trusted by the Kubernetes API server for user authentication."
+        },
+        "client_id": {
+          "type": "string",
+          "description": "OIDC client ID. Defaults to cluster.id when omitted."
+        },
+        "username_claim": {
+          "type": "string",
+          "description": "Token claim used as the Kubernetes username. Defaults to email."
+        },
+        "groups_claim": {
+          "type": "string",
+          "description": "Token claim used for Kubernetes group membership. Defaults to groups."
+        },
+        "signing_algs": {
+          "type": "array",
+          "description": "Allowed OIDC signing algorithms.",
+          "items": { "type": "string" }
+        },
+        "ca_cert": {
+          "type": "string",
+          "description": "Custom OIDC CA certificate as inline PEM, an http(s) URL, or a local file path."
+        }
+      }
+    },
+    "acme": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["server", "email"],
+      "properties": {
+        "server": {
+          "type": "string",
+          "format": "uri",
+          "description": "ACME directory URL used for ingress certificates."
+        },
+        "email": {
+          "type": "string",
+          "description": "ACME account email address."
+        }
+      }
+    },
+    "domain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["zone", "provider"],
+      "properties": {
+        "zone": {
+          "type": "string",
+          "description": "DNS zone name used by the cluster."
+        },
+        "provider": { "$ref": "#/$defs/domainProvider" }
+      }
+    },
+    "domainProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "DNS provider kind.",
+          "enum": ["aws", "cloudflare", "google"]
+        },
+        "account": { "type": "string", "description": "Cloud account identifier for this DNS provider." },
+        "profile": { "type": "string", "description": "Local cloud credentials profile name." },
+        "region": { "type": "string", "description": "Cloud region for DNS provider API calls when applicable." },
+        "hosted_zone_id": { "type": "string", "description": "Provider-specific hosted zone ID." },
+        "role_arn": { "type": "string", "description": "IAM role ARN used for DNS automation." },
+        "secret_provider_class_name": { "type": "string", "description": "Kubernetes SecretProviderClass name for DNS credentials." },
+        "secret_name": { "type": "string", "description": "Kubernetes Secret name for DNS credentials." },
+        "secret_key": { "type": "string", "description": "Key within the Kubernetes Secret for DNS credentials." },
+        "project": { "type": "string", "description": "Google Cloud project ID." },
+        "hosted_zone_name": { "type": "string", "description": "Provider-specific hosted zone name." }
+      }
+    },
+    "pool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["arch", "instance_type", "size"],
+      "properties": {
+        "arch": {
+          "type": "string",
+          "description": "CPU architecture for VMs in this pool.",
+          "enum": ["amd64", "arm64"]
+        },
+        "instance_type": {
+          "type": "string",
+          "description": "Provider instance type for VMs in this pool."
+        },
+        "size": {
+          "type": "integer",
+          "description": "Desired number of VMs in this pool.",
+          "minimum": 0
+        },
+        "disk_size": {
+          "type": "integer",
+          "description": "Root disk size for VMs in this pool, in GiB.",
+          "minimum": 1
+        }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "Infrastructure provider kind. Cluster create currently supports aws.",
+          "enum": ["aws", "google", "proxmox"]
+        },
+        "region": { "type": "string", "description": "Provider region." },
+        "account": { "type": "string", "description": "Provider account identifier, such as an AWS account ID." },
+        "profile": { "type": "string", "description": "Local provider credentials profile name." },
+        "project": { "type": "string", "description": "Google Cloud project ID." },
+        "tags": {
+          "type": "object",
+          "description": "Tags applied to supported provider resources.",
+          "additionalProperties": { "type": "string" }
+        },
+        "vpc": { "$ref": "#/$defs/vpc" },
+        "zones": {
+          "type": "object",
+          "description": "Availability zone or shard map. Each key is a provider zone name.",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/subnet" }
+          }
+        },
+        "load_balancer": { "$ref": "#/$defs/loadBalancer" },
+        "buckets": {
+          "type": "array",
+          "description": "Additional provider bucket names used by the cluster.",
+          "items": { "type": "string" }
+        },
+        "roles": {
+          "type": "object",
+          "description": "Additional provider roles keyed by role name.",
+          "additionalProperties": { "$ref": "#/$defs/role" }
+        }
+      }
+    },
+    "vpc": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Existing VPC ID. When set, Podplane uses the existing VPC." },
+        "v4cidr": { "type": "string", "description": "IPv4 CIDR for a new VPC." },
+        "v6cidr": { "type": "string", "description": "IPv6 CIDR for a new VPC, or auto to request provider-assigned IPv6." }
+      }
+    },
+    "subnet": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pool": { "type": "string", "description": "Pool name scheduled into this subnet." },
+        "services": {
+          "type": "array",
+          "description": "Infrastructure services placed in this subnet.",
+          "items": { "type": "string", "enum": ["nat", "nlb", "nstance"] }
+        },
+        "public": { "type": "boolean", "description": "Whether the subnet is public." },
+        "id": { "type": "string", "description": "Existing subnet ID. When set, Podplane uses the existing subnet." },
+        "v4cidr": { "type": "string", "description": "IPv4 CIDR for a new subnet." },
+        "v6cidr": { "type": "string", "description": "IPv6 CIDR for a new subnet, or auto." }
+      }
+    },
+    "loadBalancer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["public"],
+      "properties": {
+        "public": { "type": "boolean", "description": "Whether the provider load balancer is internet-facing." },
+        "listeners": {
+          "type": "array",
+          "description": "Load-balancer listeners that forward to cluster pools.",
+          "items": { "$ref": "#/$defs/listener" }
+        }
+      }
+    },
+    "listener": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["port", "pool"],
+      "properties": {
+        "port": { "type": "integer", "description": "External listener port.", "minimum": 1, "maximum": 65535 },
+        "pool": { "type": "string", "description": "Target pool name." },
+        "target_port": { "type": "integer", "description": "Target port on pool VMs. Defaults to port when omitted.", "minimum": 1, "maximum": 65535 }
+      }
+    },
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["buckets"],
+      "properties": {
+        "buckets": {
+          "type": "array",
+          "description": "Bucket names this role can access.",
+          "items": { "type": "string" }
+        },
+        "permissions": { "type": "string", "description": "Permission level for this role." }
+      }
+    },
+    "kubernetes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "api_hostname": { "type": "string", "description": "Public Kubernetes API hostname." },
+        "api_port": { "type": "integer", "description": "Public Kubernetes API port. Defaults to 6443.", "minimum": 1, "maximum": 65535 },
+        "cluster_cidr": {
+          "type": "array",
+          "description": "Kubernetes pod CIDR ranges.",
+          "items": { "type": "string" }
+        },
+        "service_cidr": {
+          "type": "array",
+          "description": "Kubernetes service CIDR ranges.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "seed": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Podplane seed to use when creating the initial Netsy snapshot.",
+          "enum": ["", "recommended", "minimal", "none"]
+        },
+        "version": { "type": "string", "description": "Seed version recorded when the cluster was created." }
+      }
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": { "$ref": "#/$defs/componentsSource" }
+      }
+    },
+    "componentsSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "url": { "type": "string", "description": "Git repository URL for platform-components." },
+        "ref": { "$ref": "#/$defs/componentsSourceRef" }
+      }
+    },
+    "componentsSourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "branch": { "type": "string", "description": "Git branch to use." },
+        "tag": { "type": "string", "description": "Git tag to use." },
+        "semver": { "type": "string", "description": "Semver constraint to use." },
+        "commit": { "type": "string", "description": "Git commit SHA to use." }
+      }
+    }
+  }
+}

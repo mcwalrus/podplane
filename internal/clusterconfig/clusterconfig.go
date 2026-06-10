@@ -47,7 +47,11 @@ func Load(path string) (*ClusterConfig, error) {
 
 // Write writes a formatted cluster configuration file to disk.
 func Write(path string, cfg *ClusterConfig) error {
-	raw, err := json.MarshalIndent(cfg, "", "  ")
+	out := *cfg
+	if out.Schema == "" {
+		out.Schema = DefaultSchemaRef
+	}
+	raw, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal cluster config: %w", err)
 	}

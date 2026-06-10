@@ -12,10 +12,13 @@ Podplane uses JSONC (JSON with comments) configuration files to store cluster an
 
 This file is the user-facing projection of cluster configuration. It is created in the current directory by `podplane cluster create` and is required by many CLI commands such as `podplane login` and `podplane install`.
 
+New cluster configs include a relative `$schema` reference to `./podplane.cluster.schema.json`. Podplane writes that schema file next to the config so editors such as VS Code can provide offline validation, completion, and hover documentation in shared infrastructure repositories. The source schema is checked into the Podplane repository at `schemas/podplane.cluster.schema.json`.
+
 ### Example
 
 ```jsonc
 {
+  "$schema": "./podplane.cluster.schema.json",
   "cluster": {
     "id": "internaltools-production",
     "name": "Internal Tools (Production)",

@@ -67,6 +67,7 @@ We recommend setting up a Git repository for storing all of your cluster and OID
 │   │
 │   └── internaltools-production/                 # example cluster
 │       ├── podplane.cluster.jsonc                # config file
+│       ├── podplane.cluster.schema.json          # generated local editor schema
 │       ├── podplane.*.tf                         # generated .tf files
 │       └── custom.tf                             # optional custom infrastructure
 ```

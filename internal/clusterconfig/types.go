@@ -10,6 +10,7 @@ import "fmt"
 // Typically files are named podplane.cluster.jsonc or have
 // a .cluster.jsonc suffix.
 type ClusterConfig struct {
+	Schema  string  `json:"$schema,omitempty"`
 	Cluster Cluster `json:"cluster"`
 }
 

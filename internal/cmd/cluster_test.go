@@ -60,12 +60,13 @@ func TestClusterCreateNoApplyGeneratesTerraform(t *testing.T) {
 		t.Fatalf("cluster create --no-apply returned error: %v", err)
 	}
 	for _, name := range []string{
+		"podplane.cluster.schema.json",
 		"podplane.cluster.main.tf",
 		"podplane.cluster.variables.tf",
 		"podplane.cluster.outputs.tf",
 	} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
-			t.Fatalf("AWS cluster tf %s was not generated: %v", name, err)
+			t.Fatalf("AWS cluster file %s was not generated: %v", name, err)
 		}
 	}
 }

@@ -40,7 +40,11 @@ func WriteCluster(configPath string, cfg *clusterconfig.ClusterConfig, opts Clus
 	if err != nil {
 		return err
 	}
-	return WriteFiles(filepath.Dir(configPath), files)
+	dir := filepath.Dir(configPath)
+	if err := WriteFiles(dir, files); err != nil {
+		return err
+	}
+	return clusterconfig.WriteSchema(dir)
 }
 
 // renderAWSCluster renders the AWS cluster Terraform files.
