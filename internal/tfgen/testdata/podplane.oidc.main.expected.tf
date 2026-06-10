@@ -1,7 +1,8 @@
 terraform {
   required_version = ">= 1.6.0"
-  required_providers = {
-    "aws" = {
+
+  required_providers {
+    aws = {
       source = "hashicorp/aws"
       version = ">= 6.0"
     }
@@ -27,8 +28,4 @@ module "oidc" {
     "kubelogin" = {}
   }
   route53_zone_id = data.aws_route53_zone.oidc.zone_id
-}
-
-output "oidc_issuer_url" {
-  value = "https://${module.oidc.oidc_addr}"
 }

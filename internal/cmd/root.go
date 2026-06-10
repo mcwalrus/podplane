@@ -29,6 +29,7 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	cobra.EnableCommandSorting = false
+	cobra.EnableTraverseRunHooks = true
 	pflags := rootCmd.PersistentFlags()
 	pflags.BoolVarP(&flagVerbose, "verbose", "v", false, "Enable verbose output")
 	pflags.Lookup("verbose").NoOptDefVal = "true"
@@ -41,6 +42,11 @@ func NewRootCmd(c *config.Config) *cobra.Command {
 		AddSource: true,
 		Level:     slog.LevelInfo,
 	}))
+
+	// Suppress usage output once Cobra has accepted args and flags.
+	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		cmd.SilenceUsage = true
+	}
 
 	// Define root command
 	rootCmd.Run = func(cmd *cobra.Command, args []string) {

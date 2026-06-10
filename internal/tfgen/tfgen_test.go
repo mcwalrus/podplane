@@ -11,8 +11,45 @@ import (
 	"testing"
 
 	"github.com/podplane/podplane/internal/clusterconfig"
+	"github.com/podplane/podplane/internal/deps"
 	"github.com/podplane/podplane/internal/oidcconfig"
 )
+
+// sampleVMConfigManifest returns a small vmconfig manifest for tfgen tests.
+func sampleVMConfigManifest(kind string, arch string) *deps.Manifest {
+	return &deps.Manifest{VMConfig: deps.VMConfig{
+		Version: "2026.01.01",
+		Kind:    kind,
+		OS: deps.OSInfo{
+			Name: deps.OS,
+			Arch: arch,
+		},
+		Dependencies: map[string]deps.Dependency{
+			"runc": {
+				Version: "1.2.3",
+				URL:     "https://example.com/deps/runc",
+				Digest:  "sha256:" + strings.Repeat("a", 64),
+			},
+			"vmconfig": {
+				Version: "2026.01.01",
+				URL:     "https://example.com/deps/vmconfig.tar.gz",
+				Type:    "tar.gz",
+				Digest:  "sha256:" + strings.Repeat("b", 64),
+			},
+		},
+	}}
+}
+
+// testClusterOptions returns fixed dependency inputs so cluster tfgen tests do
+// not read the local deps cache or fetch remote manifests.
+func testClusterOptions() ClusterOptions {
+	return ClusterOptions{
+		DepsMirrorURL: "https://cli.podplane.dev/deps",
+		VMConfigManifests: map[string]*deps.Manifest{
+			"knc/arm64": sampleVMConfigManifest("knc", "arm64"),
+		},
+	}
+}
 
 // TestGenerateAWSClusterTerraform verifies the generated AWS cluster Terraform
 // contains the expected provider modules and group references.
@@ -43,18 +80,27 @@ func TestGenerateAWSClusterTerraform(t *testing.T) {
 			},
 		}},
 	}}
-	files, err := GenerateCluster(filepath.Join(t.TempDir(), "podplane.cluster.jsonc"), cfg)
+	files, err := GenerateCluster(filepath.Join(t.TempDir(), "podplane.cluster.jsonc"), cfg, testClusterOptions())
 	if err != nil {
 		t.Fatalf("GenerateCluster returned error: %v", err)
 	}
-	if len(files) != 1 {
-		t.Fatalf("len(files) = %d, want 1", len(files))
+	if len(files) != 3 {
+		t.Fatalf("len(files) = %d, want 3", len(files))
 	}
-	if files[0].Name != "podplane.cluster.tf" {
-		t.Fatalf("files[0].Name = %q, want podplane.cluster.tf", files[0].Name)
+	contents := fileContents(files)
+	for _, name := range []string{
+		"podplane.cluster.main.tf",
+		"podplane.cluster.variables.tf",
+		"podplane.cluster.outputs.tf",
+	} {
+		if _, ok := contents[name]; !ok {
+			t.Fatalf("generated files missing %s: %#v", name, files)
+		}
 	}
-	got := files[0].Content
-	assertExpectedTerraform(t, "podplane.cluster.expected.tf", got)
+	assertExpectedTerraform(t, "podplane.cluster.main.expected.tf", contents["podplane.cluster.main.tf"])
+	assertExpectedTerraform(t, "podplane.cluster.variables.expected.tf", contents["podplane.cluster.variables.tf"])
+	assertExpectedTerraform(t, "podplane.cluster.outputs.expected.tf", contents["podplane.cluster.outputs.tf"])
+	got := contents["podplane.cluster.main.tf"] + contents["podplane.cluster.variables.tf"] + contents["podplane.cluster.outputs.tf"]
 	for _, want := range []string{
 		`provider "aws"`,
 		`module "network_123456789012_us_east_1"`,
@@ -71,6 +117,15 @@ func TestGenerateAWSClusterTerraform(t *testing.T) {
 			t.Fatalf("generated cluster tf missing %q:\n%s", want, got)
 		}
 	}
+}
+
+// fileContents indexes generated Terraform files by name.
+func fileContents(files []File) map[string]string {
+	contents := map[string]string{}
+	for _, file := range files {
+		contents[file.Name] = file.Content
+	}
+	return contents
 }
 
 // TestGenerateAWSClusterTerraformWithoutSeed verifies bare clusters do not
@@ -93,12 +148,13 @@ func TestGenerateAWSClusterTerraformWithoutSeed(t *testing.T) {
 			},
 		}},
 	}}
-	files, err := GenerateCluster(filepath.Join(t.TempDir(), "podplane.cluster.jsonc"), cfg)
+	files, err := GenerateCluster(filepath.Join(t.TempDir(), "podplane.cluster.jsonc"), cfg, testClusterOptions())
 	if err != nil {
 		t.Fatalf("GenerateCluster returned error: %v", err)
 	}
-	if strings.Contains(files[0].Content, `resource "podplane_netsy_seed_s3" "cluster"`) {
-		t.Fatalf("generated cluster tf unexpectedly contains seed resource:\n%s", files[0].Content)
+	got := fileContents(files)["podplane.cluster.main.tf"]
+	if strings.Contains(got, `resource "podplane_netsy_seed_s3" "cluster"`) {
+		t.Fatalf("generated cluster tf unexpectedly contains seed resource:\n%s", got)
 	}
 }
 
@@ -118,14 +174,23 @@ func TestGenerateAWSOIDCTerraform(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateOIDC returned error: %v", err)
 	}
-	if len(files) != 1 {
-		t.Fatalf("len(files) = %d, want 1", len(files))
+	if len(files) != 3 {
+		t.Fatalf("len(files) = %d, want 3", len(files))
 	}
-	if files[0].Name != "podplane.oidc.tf" {
-		t.Fatalf("files[0].Name = %q, want podplane.oidc.tf", files[0].Name)
+	contents := fileContents(files)
+	for _, name := range []string{
+		"podplane.oidc.main.tf",
+		"podplane.oidc.variables.tf",
+		"podplane.oidc.outputs.tf",
+	} {
+		if _, ok := contents[name]; !ok {
+			t.Fatalf("generated files missing %s: %#v", name, files)
+		}
 	}
-	got := files[0].Content
-	assertExpectedTerraform(t, "podplane.oidc.expected.tf", got)
+	assertExpectedTerraform(t, "podplane.oidc.main.expected.tf", contents["podplane.oidc.main.tf"])
+	assertExpectedTerraform(t, "podplane.oidc.variables.expected.tf", contents["podplane.oidc.variables.tf"])
+	assertExpectedTerraform(t, "podplane.oidc.outputs.expected.tf", contents["podplane.oidc.outputs.tf"])
+	got := contents["podplane.oidc.main.tf"] + contents["podplane.oidc.variables.tf"] + contents["podplane.oidc.outputs.tf"]
 	for _, want := range []string{
 		`oidc_addr = "auth.example.com"`,
 		`connector_type = "google"`,
@@ -167,7 +232,7 @@ func TestWriteFilesPreservesCustomTF(t *testing.T) {
 	if err := os.WriteFile(customPath, []byte("custom"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteFiles(dir, []File{{Name: "podplane.cluster.tf", Content: "locals {}\n"}}); err != nil {
+	if err := WriteFiles(dir, []File{{Name: "podplane.cluster.main.tf", Content: "locals {}\n"}}); err != nil {
 		t.Fatalf("WriteFiles returned error: %v", err)
 	}
 	custom, err := os.ReadFile(customPath)

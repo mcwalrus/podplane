@@ -5,11 +5,14 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/podplane/podplane/internal/config"
+	"github.com/spf13/cobra"
 )
 
 const validClusterConfigJSON = `{
@@ -43,17 +46,6 @@ const validClusterConfigJSON = `{
   }
 }`
 
-const validOIDCConfigJSON = `{
-  "oidc": {
-    "provider": { "kind": "aws", "region": "us-east-1", "account": "123456789012" },
-    "hostname": "auth.example.com",
-    "domain": { "zone": "example.com", "provider": { "kind": "aws" } },
-    "connector": { "kind": "google", "client_secret_arn": "arn:connector" },
-    "signing_key_secret_arn": "arn:signing",
-    "clients": { "kubelogin": {} }
-  }
-}`
-
 // TestClusterCreateNoApplyGeneratesTerraform verifies cluster create writes
 // managed Terraform without invoking OpenTofu/Terraform.
 func TestClusterCreateNoApplyGeneratesTerraform(t *testing.T) {
@@ -67,26 +59,14 @@ func TestClusterCreateNoApplyGeneratesTerraform(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("cluster create --no-apply returned error: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "podplane.cluster.tf")); err != nil {
-		t.Fatalf("AWS cluster tf was not generated: %v", err)
-	}
-}
-
-// TestOIDCCreateNoApplyGeneratesTerraform verifies OIDC create writes managed
-// Terraform without invoking OpenTofu/Terraform.
-func TestOIDCCreateNoApplyGeneratesTerraform(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "podplane.oidc.jsonc")
-	if err := os.WriteFile(path, []byte(validOIDCConfigJSON), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cmd := newOIDCCreateCmd(&config.Config{})
-	cmd.SetArgs([]string{"--oidc-config", path, "--no-apply"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("oidc create --no-apply returned error: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "podplane.oidc.tf")); err != nil {
-		t.Fatalf("OIDC tf was not generated: %v", err)
+	for _, name := range []string{
+		"podplane.cluster.main.tf",
+		"podplane.cluster.variables.tf",
+		"podplane.cluster.outputs.tf",
+	} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("AWS cluster tf %s was not generated: %v", name, err)
+		}
 	}
 }
 
@@ -105,17 +85,53 @@ func TestClusterDeleteNoApplyValidatesOnly(t *testing.T) {
 	}
 }
 
-// TestOIDCDeleteNoApplyValidatesOnly verifies OIDC delete no-apply validates
-// the config without invoking destroy dependencies.
-func TestOIDCDeleteNoApplyValidatesOnly(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "podplane.oidc.jsonc")
-	if err := os.WriteFile(path, []byte(validOIDCConfigJSON), 0o644); err != nil {
-		t.Fatal(err)
+func TestSilenceUsageAfterValidationSuppressesRuntimeUsage(t *testing.T) {
+	cmd := testUsageCommand(t)
+	cmd.SetArgs([]string{"run", "ok"})
+	var stdout strings.Builder
+	var stderr strings.Builder
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected runtime error")
 	}
-	cmd := newOIDCDeleteCmd(&config.Config{})
-	cmd.SetArgs([]string{"--oidc-config", path, "--no-apply"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("oidc delete --no-apply returned error: %v", err)
+	output := stdout.String() + stderr.String()
+	if strings.Contains(output, "Usage:") {
+		t.Fatalf("runtime error printed usage: %q", output)
 	}
+}
+
+func TestSilenceUsageAfterValidationKeepsArgValidationUsage(t *testing.T) {
+	cmd := testUsageCommand(t)
+	cmd.SetArgs([]string{"run"})
+	var stdout strings.Builder
+	var stderr strings.Builder
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected argument validation error")
+	}
+	output := stdout.String() + stderr.String()
+	if !strings.Contains(output, "Usage:") {
+		t.Fatalf("argument validation error did not print usage: %q", output)
+	}
+}
+
+func testUsageCommand(t *testing.T) *cobra.Command {
+	t.Helper()
+	root := &cobra.Command{
+		Use: "test",
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			cmd.SilenceUsage = true
+		},
+	}
+	cmd := &cobra.Command{
+		Use:  "run [arg]",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return errors.New("runtime failed")
+		},
+	}
+	root.AddCommand(cmd)
+	return root
 }

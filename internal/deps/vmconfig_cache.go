@@ -5,6 +5,7 @@
 package deps
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -79,6 +80,37 @@ func (m *Manager) ReadCachedManifest(kind, arch string) (*Manifest, []byte, erro
 		return nil, raw, fmt.Errorf("failed to parse cached manifest: %w", err)
 	}
 	return &manifest, raw, nil
+}
+
+// EnsureVMConfigManifestCached returns the cached vmconfig manifest, fetching
+// and caching it first when the manifest is not already present locally.
+func (m *Manager) EnsureVMConfigManifestCached(kind, arch string) (*Manifest, error) {
+	manifest, _, err := m.ReadCachedManifest(kind, arch)
+	if err != nil {
+		return nil, err
+	}
+	if manifest != nil {
+		return manifest, nil
+	}
+
+	manifest, err = m.fetchManifest(context.Background(), kind, arch, nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, it := range manifest.Items() {
+		if it.IsUnreleasedVMConfigStub() {
+			return nil, fmt.Errorf("published vmconfig manifest contains unreleased vmconfig stub")
+		}
+	}
+	manifest.ResetCached()
+	raw, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode cached vmconfig manifest: %w", err)
+	}
+	if err := m.WriteCachedManifest(kind, arch, append(raw, '\n')); err != nil {
+		return nil, fmt.Errorf("failed to write cached manifest: %w", err)
+	}
+	return manifest, nil
 }
 
 // WriteCachedManifest writes historical and latest manifest JSON bytes to the cache.
