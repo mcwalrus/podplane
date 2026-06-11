@@ -44,6 +44,9 @@ func ValidateSeed(seed Seed) error {
 
 // ValidateComponents validates the optional components configuration.
 func ValidateComponents(components Components) error {
+	if components.Registry != nil && components.Registry.Mirror.Enabled && components.Registry.Mirror.Hostname == "" {
+		return fmt.Errorf("components.registry.mirror.hostname is required when mirror.enabled is true")
+	}
 	if components.Source == nil {
 		return nil
 	}

@@ -132,6 +132,9 @@ func TestGetSeedConfigReadsSavedValue(t *testing.T) {
 	if !strings.Contains(string(raw), `"seed": {}`) {
 		t.Fatalf("cluster config should render empty seed object when seed is none:\n%s", raw)
 	}
+	if !strings.Contains(string(raw), `"hostname": "dev-registry.local"`) {
+		t.Fatalf("cluster config should include local registry mirror hostname:\n%s", raw)
+	}
 	seed, err := m.getSeedConfig("dev")
 	if err != nil {
 		t.Fatalf("getSeedConfig: %v", err)

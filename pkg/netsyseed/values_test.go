@@ -46,6 +46,28 @@ func TestBuildPlatformComponentsValuesAWSProviderEnablesEBSCSI(t *testing.T) {
 	}
 }
 
+func TestBuildPlatformComponentsValuesRegistryMirror(t *testing.T) {
+	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
+		Components: clusterconfig.Components{
+			Registry: &clusterconfig.ComponentsRegistry{
+				Mirror: clusterconfig.ComponentsRegistryMirror{Enabled: true, Hostname: "dev-registry.local"},
+			},
+		},
+	}}
+	values, err := buildPlatformComponentsValues(cfg)
+	if err != nil {
+		t.Fatalf("buildPlatformComponentsValues error = %v", err)
+	}
+	components := values["platform"].(map[string]any)["components"].(map[string]any)
+	mirror := components["registry"].(map[string]any)["mirror"].(map[string]any)
+	if got, want := mirror["enabled"], true; got != want {
+		t.Fatalf("registry.mirror.enabled = %v, want %v", got, want)
+	}
+	if got, want := mirror["hostname"], "dev-registry.local"; got != want {
+		t.Fatalf("registry.mirror.hostname = %v, want %v", got, want)
+	}
+}
+
 func TestBuildPlatformComponentsValuesGroupsAWSSolvers(t *testing.T) {
 	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
 		ACME:      &clusterconfig.ACME{Server: "https://acme.example/directory", Email: "ops@example.com"},

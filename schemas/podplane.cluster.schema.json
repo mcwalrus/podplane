@@ -120,7 +120,7 @@
         "kind": {
           "type": "string",
           "description": "DNS provider kind.",
-          "enum": ["aws", "cloudflare", "google"]
+          "enum": ["aws", "cloudflare", "google", "local"]
         },
         "account": { "type": "string", "description": "Cloud account identifier for this DNS provider." },
         "profile": { "type": "string", "description": "Local cloud credentials profile name." },
@@ -296,7 +296,23 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "source": { "$ref": "#/$defs/componentsSource" }
+        "source": { "$ref": "#/$defs/componentsSource" },
+        "registry": { "$ref": "#/$defs/componentsRegistry" }
+      }
+    },
+    "componentsRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mirror": { "$ref": "#/$defs/componentsRegistryMirror" }
+      }
+    },
+    "componentsRegistryMirror": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Render platform component image references through the configured image mirror." },
+        "hostname": { "type": "string", "description": "Registry mirror hostname used as the prefix for mirrored component image references." }
       }
     },
     "componentsSource": {

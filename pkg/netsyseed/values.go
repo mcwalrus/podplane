@@ -29,6 +29,9 @@ func buildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig) (map[string
 		},
 	}
 	components := values["platform"].(map[string]any)["components"].(map[string]any)
+	if cfg.Cluster.Components.Registry != nil {
+		applyRegistryMirror(components, cfg.Cluster.Components.Registry.Mirror)
+	}
 	applyProviderComponents(components, cfg.Cluster.Providers)
 	if len(cfg.Cluster.Domains) == 0 {
 		return values, nil
@@ -82,6 +85,20 @@ func buildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig) (map[string
 		platformCerts["platform"].(map[string]any)["certs"].(map[string]any)["secretSync"] = secretSync
 	}
 	return values, nil
+}
+
+// applyRegistryMirror configures platform-components to render explicit image
+// references to the configured component image mirror.
+func applyRegistryMirror(components map[string]any, mirror clusterconfig.ComponentsRegistryMirror) {
+	if !mirror.Enabled {
+		return
+	}
+	components["registry"] = map[string]any{
+		"mirror": map[string]any{
+			"enabled":  true,
+			"hostname": mirror.Hostname,
+		},
+	}
 }
 
 // applyProviderComponents enables provider-specific core components required by

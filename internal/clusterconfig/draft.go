@@ -71,6 +71,10 @@ func copyClusterConfig(in ClusterConfig) ClusterConfig {
 		source := *in.Cluster.Components.Source
 		out.Cluster.Components.Source = &source
 	}
+	if in.Cluster.Components.Registry != nil {
+		registry := *in.Cluster.Components.Registry
+		out.Cluster.Components.Registry = &registry
+	}
 	out.Cluster.Pools = make(map[string]Pool, len(in.Cluster.Pools))
 	for name, pool := range in.Cluster.Pools {
 		out.Cluster.Pools[name] = pool

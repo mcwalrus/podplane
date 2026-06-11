@@ -38,7 +38,21 @@ type Seed struct {
 
 // Components describes optional platform-components configuration.
 type Components struct {
-	Source *ComponentsSource `json:"source,omitempty"`
+	Source   *ComponentsSource   `json:"source,omitempty"`
+	Registry *ComponentsRegistry `json:"registry,omitempty"`
+}
+
+// ComponentsRegistry describes the registry settings platform-components should
+// use when rendering component image references.
+type ComponentsRegistry struct {
+	Mirror ComponentsRegistryMirror `json:"mirror,omitempty"`
+}
+
+// ComponentsRegistryMirror enables explicit mirrored component image references
+// such as <hostname>/<original-registry>/<repository>:<tag>.
+type ComponentsRegistryMirror struct {
+	Enabled  bool   `json:"enabled,omitempty"`
+	Hostname string `json:"hostname,omitempty"`
 }
 
 // ComponentsSource overrides the Git repository used by platform-components.

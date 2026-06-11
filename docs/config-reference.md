@@ -111,6 +111,12 @@ New cluster configs include a relative `$schema` reference to `./podplane.cluste
       "version": "v1.2.3-1"
     },
     "components": {
+      "registry": {
+        "mirror": {
+          "enabled": true,
+          "hostname": "registry.example.com"
+        }
+      },
       "source": {
         "url": "https://github.com/podplane/components.git",
         "ref": {
@@ -183,6 +189,8 @@ For the operational impact of changing cluster fields after initial deployment, 
 | `cluster.kubernetes.service_cidr` | CIDR ranges for Service ClusterIPs, joined with commas for kube-apiserver `--service-cluster-ip-range` |
 | `cluster.seed.name` | Podplane seed file to use when creating the Netsy bootstrap file - `recommended`, `minimal`, or `none`. Leave `cluster.seed` as an empty object to seed no platform-components state, leaving a bare cluster that must be bootstrapped manually. |
 | `cluster.seed.version` | Podplane seeds release version used for the selected seed file, e.g. `v1.2.3-1`. Generated configs pin this to the known available seed version. Omit inside an empty `cluster.seed` object. |
+| `cluster.components.registry.mirror.enabled` | Render platform component image references through the configured registry mirror. Local clusters enable this automatically so seeded components pull from the VM-hosted registry backed by the local dependency cache. |
+| `cluster.components.registry.mirror.hostname` | Registry mirror hostname used as the prefix for mirrored component image references, such as `<hostname>/docker.io/library/caddy`. Required when registry mirroring is enabled. |
 | `cluster.components.source.url` | Git repository URL used by `platform-components` as the source for component Helm charts. Defaults to the published Podplane components repository when omitted. |
 | `cluster.components.source.ref.branch` | Git branch to use for component Helm charts. |
 | `cluster.components.source.ref.tag` | Git tag to use for component Helm charts. Mutually exclusive with other `source.ref` selectors. |
