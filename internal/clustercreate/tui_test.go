@@ -9,10 +9,11 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/podplane/podplane/pkg/seeds"
 )
 
 func TestNewConfigFormSkipsOIDCIssuerFieldWhenProvided(t *testing.T) {
-	form := newConfigForm("https://auth.example.com")
+	form := newConfigForm("https://auth.example.com", "v1.2.3-1")
 
 	for _, field := range form.fields {
 		if field.label == "OIDC issuer URL" {
@@ -30,7 +31,7 @@ func TestNewConfigFormSkipsOIDCIssuerFieldWhenProvided(t *testing.T) {
 }
 
 func TestNewConfigFormPromptsOIDCIssuerFieldWhenMissing(t *testing.T) {
-	form := newConfigForm("")
+	form := newConfigForm("", "v1.2.3-1")
 
 	for _, field := range form.fields {
 		if field.label == "OIDC issuer URL" {
@@ -40,8 +41,43 @@ func TestNewConfigFormPromptsOIDCIssuerFieldWhenMissing(t *testing.T) {
 	t.Fatal("OIDC issuer URL field should be shown when issuer URL is not resolved")
 }
 
+func TestNewConfigFormDefaultsToRecommendedSeed(t *testing.T) {
+	form := newConfigForm("https://auth.example.com", "v1.2.3-1")
+	seedField := form.fields[indexForField(t, form, "Initial platform components (recommended, minimal, none)")]
+	if seedField.value != seeds.Recommended {
+		t.Fatalf("seed field default = %q, want %q", seedField.value, seeds.Recommended)
+	}
+
+	cfg, err := form.config()
+	if err != nil {
+		t.Fatalf("config returned error: %v", err)
+	}
+	if got := cfg.Cluster.Seed.Name; got != seeds.Recommended {
+		t.Fatalf("cluster seed name = %q, want %q", got, seeds.Recommended)
+	}
+	if got := cfg.Cluster.Seed.Version; got != "v1.2.3-1" {
+		t.Fatalf("cluster seed version = %q, want v1.2.3-1", got)
+	}
+}
+
+func TestConfigFormCanSelectBareSeed(t *testing.T) {
+	form := newConfigForm("https://auth.example.com", "v1.2.3-1")
+	form.fields[indexForField(t, form, "Initial platform components (recommended, minimal, none)")].value = seeds.None
+
+	cfg, err := form.config()
+	if err != nil {
+		t.Fatalf("config returned error: %v", err)
+	}
+	if got := cfg.Cluster.Seed.Name; got != "" {
+		t.Fatalf("cluster seed name = %q, want empty for bare seed", got)
+	}
+	if got := cfg.Cluster.Seed.Version; got != "" {
+		t.Fatalf("cluster seed version = %q, want empty for bare seed", got)
+	}
+}
+
 func TestConfigFormCanNavigateBackWithoutLosingAnswers(t *testing.T) {
-	form := newConfigForm("https://auth.example.com")
+	form := newConfigForm("https://auth.example.com", "v1.2.3-1")
 	form.input.SetValue("production")
 	if view := form.View(); strings.Contains(view, "shift+tab: back") {
 		t.Fatalf("first cluster step should not show back hint; view = %q", view)
@@ -77,7 +113,7 @@ func TestConfigFormCanNavigateBackWithoutLosingAnswers(t *testing.T) {
 }
 
 func TestConfigFormBackNavigationSkipsHiddenNetworkingFields(t *testing.T) {
-	form := newConfigForm("https://auth.example.com")
+	form := newConfigForm("https://auth.example.com", "v1.2.3-1")
 	form.index = form.nextIndex(indexForField(t, form, "Control-plane architecture") - 1)
 	form.input.SetValue(form.fields[form.index].value)
 

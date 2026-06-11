@@ -15,6 +15,7 @@ import (
 
 	"github.com/podplane/podplane/internal/clusterconfig"
 	"github.com/podplane/podplane/internal/tui"
+	"github.com/podplane/podplane/pkg/seeds"
 )
 
 type configField struct {
@@ -29,6 +30,7 @@ type configForm struct {
 	index          int
 	input          textinput.Model
 	oidcIssuerURL  string
+	seedVersion    string
 	err            error
 	showNetworking bool
 	cancel         bool
@@ -36,8 +38,8 @@ type configForm struct {
 }
 
 // RunConfigWizard runs an interactive form and returns a cluster configuration.
-func RunConfigWizard(oidcIssuerURL string) (*clusterconfig.ClusterConfig, error) {
-	m := newConfigForm(oidcIssuerURL)
+func RunConfigWizard(oidcIssuerURL, seedVersion string) (*clusterconfig.ClusterConfig, error) {
+	m := newConfigForm(oidcIssuerURL, seedVersion)
 	got, err := tea.NewProgram(m).Run()
 	if err != nil {
 		return nil, fmt.Errorf("run cluster config form: %w", err)
@@ -56,7 +58,7 @@ func RunConfigWizard(oidcIssuerURL string) (*clusterconfig.ClusterConfig, error)
 }
 
 // newConfigForm creates the initial model for the cluster config form.
-func newConfigForm(oidcIssuerURL string) configForm {
+func newConfigForm(oidcIssuerURL, seedVersion string) configForm {
 	draft := clusterconfig.NewDraftConfig("aws")
 	if oidcIssuerURL != "" {
 		draft.Cluster.OIDC.IssuerURL = oidcIssuerURL
@@ -73,6 +75,7 @@ func newConfigForm(oidcIssuerURL string) configForm {
 		{label: "Cluster ID / slug", value: draft.Cluster.ID, validate: validateClusterID},
 		{label: "AWS region", value: provider.Region, validate: tui.Required("AWS region")},
 		{label: "AWS profile (optional)", value: provider.Profile},
+		{label: "Initial platform components (recommended, minimal, none)", value: seeds.Recommended, validate: validateSeedName},
 		{label: "Configure networking options?", value: "no", validate: validateYesNo},
 		{label: "VPC IPv4 CIDR", value: provider.VPC.V4CIDR, validate: tui.Required("VPC IPv4 CIDR"), advanced: true},
 		{label: "AWS availability zone", value: zone, validate: tui.Required("AWS availability zone"), advanced: true},
@@ -89,7 +92,7 @@ func newConfigForm(oidcIssuerURL string) configForm {
 	input.CharLimit = 256
 	input.SetValue(fields[0].value)
 	input.CursorEnd()
-	return configForm{fields: fields, input: input, oidcIssuerURL: oidcIssuerURL}
+	return configForm{fields: fields, input: input, oidcIssuerURL: oidcIssuerURL, seedVersion: seedVersion}
 }
 
 // Init starts cursor blinking for the cluster config form.
@@ -227,6 +230,17 @@ func (m configForm) config() (*clusterconfig.ClusterConfig, error) {
 	if cfg.Cluster.OIDC.IssuerURL == "" {
 		cfg.Cluster.OIDC.IssuerURL = values["OIDC issuer URL"]
 	}
+	seedName, err := seeds.ParseName(values["Initial platform components (recommended, minimal, none)"])
+	if err != nil {
+		return nil, err
+	}
+	if seedName != seeds.None {
+		cfg.Cluster.Seed.Name = seedName
+		if m.seedVersion == "" {
+			return nil, fmt.Errorf("seed version is required")
+		}
+		cfg.Cluster.Seed.Version = m.seedVersion
+	}
 	cfg.Cluster.Pools["control-plane"] = clusterconfig.Pool{
 		Arch:         values["Control-plane architecture"],
 		InstanceType: values["Control-plane instance type"],
@@ -259,6 +273,14 @@ func validateClusterID(value string) error {
 func validateArch(value string) error {
 	if value != "amd64" && value != "arm64" {
 		return fmt.Errorf("architecture must be amd64 or arm64")
+	}
+	return nil
+}
+
+// validateSeedName validates the supported initial platform component seeds.
+func validateSeedName(value string) error {
+	if _, err := seeds.ParseName(value); err != nil {
+		return err
 	}
 	return nil
 }

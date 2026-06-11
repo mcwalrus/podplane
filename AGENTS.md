@@ -40,7 +40,7 @@ Keep command behavior aligned with the command context model documented in
 ## Code Style
 
 - **File headers**: include the Podplane copyright and SPDX header on Go files.
-- **Packages**: keep `internal/cmd` focused on Cobra command wiring and orchestratio, avoid helper functions in this, instead put reusable behavior in domain packages such as `internal/kubectl`, `internal/clusterconfig`, `internal/components`, or `internal/local`.
+- **Packages**: keep `internal/cmd` focused on Cobra command wiring and orchestration. Do not add command-local helper functions for business logic; put reusable behavior in domain packages such as `internal/kubectl`, `internal/clusterconfig`, `internal/components`, or `internal/local`. Small Cobra-specific helpers may stay in `internal/cmd` only when they are strictly command UI/wiring concerns.
 - **Imports**: stdlib → third-party → local (`github.com/podplane/podplane/*`).
 - **Naming**: use concise Go names. Avoid `Get` prefixes; prefer names like `ClusterIDFromContext`.
 - **Errors**: return early and wrap with `fmt.Errorf("...: %w", err)` when adding context.

@@ -6,7 +6,7 @@ description: "Generate cluster configuration and deploy infrastructure"
 
 ## Overview
 
-Generates or reads a cluster config file, generates infrastructure-as-code files, and (for AWS/Google Cloud) deploys the cluster via OpenTofu/Terraform.
+Generates or reads a cluster config file, generates infrastructure-as-code files, and (for AWS/Google Cloud) deploys the cluster via OpenTofu/Terraform. When creating a new config interactively, the command asks which initial platform components to seed: `recommended` (default), `minimal`, or `none` for a bare cluster.
 
 ```
 podplane cluster create [flags]

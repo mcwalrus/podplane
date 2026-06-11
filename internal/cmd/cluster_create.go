@@ -20,6 +20,7 @@ import (
 	"github.com/podplane/podplane/internal/tfexec"
 	"github.com/podplane/podplane/internal/tfgen"
 	"github.com/podplane/podplane/internal/tui"
+	"github.com/podplane/podplane/pkg/seeds"
 	"github.com/spf13/cobra"
 )
 
@@ -41,10 +42,20 @@ func newClusterCreateCmd(c *config.Config) *cobra.Command {
 				return err
 			}
 
+			// Prepare dependency cache access used while creating or generating
+			// cluster infrastructure files.
+			depsManager := deps.NewManager(c.DepsBaseURL(), c.DepsCacheDir())
+
 			// Load an existing cluster config, or create one first so the rest of
 			// the command can operate on a single resolved config value.
 			var cfg *clusterconfig.ClusterConfig
 			if _, err := os.Stat(path); os.IsNotExist(err) {
+				// Read or download the latest seed snapshots for determining cluster seed file version to use
+				seedManifest, err := depsManager.EnsureSeedSnapshotsCached(context.Background())
+				if err != nil {
+					return fmt.Errorf("failed to prepare seed snapshots: %w", err)
+				}
+				// Get cwd for generating files relative to it
 				originDir, err := os.Getwd()
 				if err != nil {
 					return err
@@ -54,7 +65,8 @@ func newClusterCreateCmd(c *config.Config) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				cfg, err = clustercreate.RunConfigWizard(issuerURL)
+				// Begin cluster-config-related questions
+				cfg, err = clustercreate.RunConfigWizard(issuerURL, seedManifest.Seeds.Version)
 				if err != nil {
 					return err
 				}
@@ -73,11 +85,16 @@ func newClusterCreateCmd(c *config.Config) *cobra.Command {
 				if err != nil {
 					return err
 				}
+				// Read or download the seed snapshot specified by the cluster config
+				if cfg.Cluster.Seed.Name != "" && cfg.Cluster.Seed.Name != seeds.None {
+					if _, err := depsManager.EnsureSeedSnapshot(context.Background(), cfg.Cluster.Seed.Name, cfg.Cluster.Seed.Version, nil); err != nil {
+						return fmt.Errorf("failed to prepare seed snapshot %q: %w", cfg.Cluster.Seed.Name, err)
+					}
+				}
 			}
 
 			// Download vmconfig manifest and fail early if it cannot be fetched, since
 			// it's required to complete cluster creation (tf files embed the manifest).
-			depsManager := deps.NewManager(c.DepsBaseURL(), c.DepsCacheDir())
 			manifests := map[string]*deps.Manifest{}
 			for poolName, pool := range cfg.Cluster.Pools {
 				kind := "knd"

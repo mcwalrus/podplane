@@ -79,6 +79,47 @@ func (m *Manager) ReadCachedSeedsManifest() (*SeedsManifest, []byte, error) {
 	return &manifest, raw, nil
 }
 
+// EnsureSeedsManifestCached returns the cached seeds manifest, fetching and
+// caching it first when the manifest is not already present locally.
+func (m *Manager) EnsureSeedsManifestCached(ctx context.Context) (*SeedsManifest, error) {
+	manifest, _, err := m.ReadCachedSeedsManifest()
+	if err != nil {
+		return nil, err
+	}
+	if manifest != nil {
+		return manifest, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	manifest, err = m.fetchSeedsManifest(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load seeds manifest: %w", err)
+	}
+	manifest.ResetCached()
+	raw, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode cached seeds manifest: %w", err)
+	}
+	if err := m.WriteCachedSeedsManifest(append(raw, '\n')); err != nil {
+		return nil, err
+	}
+	return manifest, nil
+}
+
+// EnsureSeedSnapshotsCached returns the cached seeds manifest after ensuring
+// all seed snapshots referenced by it are present in the local cache.
+func (m *Manager) EnsureSeedSnapshotsCached(ctx context.Context) (*SeedsManifest, error) {
+	manifest, err := m.EnsureSeedsManifestCached(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.cacheSeedSnapshots(ctx, manifest, "", nil, nil); err != nil {
+		return nil, err
+	}
+	return manifest, nil
+}
+
 // CachedSeedsVersion returns the version in the latest cached seeds manifest.
 func (m *Manager) CachedSeedsVersion() (string, error) {
 	manifest, _, err := m.ReadCachedSeedsManifest()
@@ -137,17 +178,24 @@ func (m *Manager) EnsureSeedSnapshot(ctx context.Context, name, version string, 
 		return "", fmt.Errorf("seeds manifest version is %q, want %q", manifest.Seeds.Version, version)
 	}
 	manifest.ResetCached()
-	if err := m.populateSeedsCache(ctx, manifest, "", client, nil); err != nil {
-		return "", err
-	}
-	raw, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to encode cached seeds manifest: %w", err)
-	}
-	if err := m.WriteCachedSeedsManifest(append(raw, '\n')); err != nil {
+	if err := m.cacheSeedSnapshots(ctx, manifest, "", client, nil); err != nil {
 		return "", err
 	}
 	return m.CachedSeedSnapshotPath(name, version)
+}
+
+func (m *Manager) cacheSeedSnapshots(ctx context.Context, manifest *SeedsManifest, manifestPath string, client *http.Client, progress func(DownloadEvent)) error {
+	if err := m.populateSeedsCache(ctx, manifest, manifestPath, client, progress); err != nil {
+		return err
+	}
+	raw, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to encode cached seeds manifest: %w", err)
+	}
+	if err := m.WriteCachedSeedsManifest(append(raw, '\n')); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) populateSeedsCache(ctx context.Context, manifest *SeedsManifest, manifestPath string, client *http.Client, progress func(DownloadEvent)) error {
