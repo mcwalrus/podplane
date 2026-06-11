@@ -26,25 +26,83 @@ type LocalStartOptions struct {
 func LocalStartChecks(opts LocalStartOptions) []Check {
 	switch opts.SeedName {
 	case seeds.Minimal:
-		return ciliumChecks(opts)
+		return []Check{
+			{
+				Key:      "cilium",
+				Name:     "cilium",
+				Kind:     "daemonset",
+				Required: true,
+				Expected: 30 * time.Second,
+				Timeout:  3 * time.Minute,
+				Run: func(ctx context.Context) Result {
+					return readWorkload(ctx, opts.KubeContext, opts.Kubeconfig, "platform-cilium", "daemonset", "cilium")
+				},
+			},
+		}
 	case seeds.Recommended:
-		checks := ciliumChecks(opts)
-		checks = append(checks,
-			WorkloadCheck(opts.KubeContext, opts.Kubeconfig, "platform-cert-manager", "deployment", "platform-cert-manager-webhook", true),
-			CertManagerAdmissionCheck(opts.KubeContext, opts.Kubeconfig, true),
-			WorkloadCheck(opts.KubeContext, opts.Kubeconfig, "platform-traefik", "daemonset", "platform-traefik", true),
-			LocalIngressProxyCheck(opts.LocalIngressURL, true),
-		)
-		return checks
+		return []Check{
+			{
+				Key:      "cilium",
+				Name:     "cilium",
+				Kind:     "daemonset",
+				Required: true,
+				Expected: 30 * time.Second,
+				Timeout:  3 * time.Minute,
+				Run: func(ctx context.Context) Result {
+					return readWorkload(ctx, opts.KubeContext, opts.Kubeconfig, "platform-cilium", "daemonset", "cilium")
+				},
+			},
+			{
+				Key:       "cert-manager",
+				Name:      "cert-manager webhook",
+				Kind:      "deployment",
+				Required:  true,
+				DependsOn: []string{"cilium"},
+				Expected:  30 * time.Second,
+				Timeout:   3 * time.Minute,
+				Run: func(ctx context.Context) Result {
+					return readWorkload(ctx, opts.KubeContext, opts.Kubeconfig, "platform-cert-manager", "deployment", "platform-cert-manager-webhook")
+				},
+			},
+			{
+				Key:       "cert-manager-admission",
+				Name:      "cert-manager admission",
+				Kind:      "webhook",
+				Required:  true,
+				DependsOn: []string{"cert-manager"},
+				Expected:  10 * time.Second,
+				Timeout:   2 * time.Minute,
+				Run: func(ctx context.Context) Result {
+					return checkCertManagerAdmission(ctx, opts.KubeContext, opts.Kubeconfig)
+				},
+			},
+			{
+				Key:       "traefik",
+				Name:      "traefik",
+				Kind:      "daemonset",
+				Required:  true,
+				DependsOn: []string{"cilium"},
+				Expected:  20 * time.Second,
+				Timeout:   3 * time.Minute,
+				Run: func(ctx context.Context) Result {
+					return readWorkload(ctx, opts.KubeContext, opts.Kubeconfig, "platform-traefik", "daemonset", "platform-traefik")
+				},
+			},
+			{
+				Key:       "ingress",
+				Name:      "local ingress proxy",
+				Kind:      "ingress",
+				Required:  true,
+				DependsOn: []string{"traefik"},
+				Expected:  5 * time.Second,
+				Timeout:   time.Minute,
+				Run: func(ctx context.Context) Result {
+					return checkLocalIngressProxy(ctx, opts.LocalIngressURL)
+				},
+			},
+		}
 	default:
 		return nil
-	}
-}
-
-// ciliumChecks returns the local-start checks required for a functional CNI.
-func ciliumChecks(opts LocalStartOptions) []Check {
-	return []Check{
-		WorkloadCheck(opts.KubeContext, opts.Kubeconfig, "platform-cilium", "daemonset", "cilium", true),
 	}
 }
 
@@ -58,27 +116,33 @@ func LocalIngressProxyCheck(localIngressURL func() (string, error), required boo
 		Kind:     "ingress",
 		Required: required,
 		Run: func(ctx context.Context) Result {
-			if localIngressURL == nil {
-				return Result{Status: StatusPending, Message: "local manager unavailable"}
-			}
-			url, err := localIngressURL()
-			if err != nil {
-				return Result{Status: StatusPending, Message: err.Error()}
-			}
-			client := &http.Client{
-				Timeout:   5 * time.Second,
-				Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
-			}
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-			if err != nil {
-				return Result{Err: err}
-			}
-			resp, err := client.Do(req)
-			if err != nil {
-				return Result{Exists: true, Status: StatusPending, Message: fmt.Sprintf("waiting for Traefik via %s: %v", url, err)}
-			}
-			defer resp.Body.Close()
-			return Result{Exists: true, Ready: true, Status: StatusReady, Message: fmt.Sprintf("%s returned HTTP %d", url, resp.StatusCode)}
+			return checkLocalIngressProxy(ctx, localIngressURL)
 		},
 	}
+}
+
+// checkLocalIngressProxy verifies that the local ingress URL responds to an HTTP
+// request.
+func checkLocalIngressProxy(ctx context.Context, localIngressURL func() (string, error)) Result {
+	if localIngressURL == nil {
+		return Result{Status: StatusPending, Message: "local manager unavailable"}
+	}
+	url, err := localIngressURL()
+	if err != nil {
+		return Result{Status: StatusPending, Message: err.Error()}
+	}
+	client := &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return Result{Err: err}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return Result{Exists: true, Status: StatusPending, Message: fmt.Sprintf("waiting for Traefik via %s: %v", url, err)}
+	}
+	defer resp.Body.Close()
+	return Result{Exists: true, Ready: true, Status: StatusReady, Message: fmt.Sprintf("%s returned HTTP %d", url, resp.StatusCode)}
 }

@@ -36,24 +36,29 @@ func CertManagerAdmissionCheck(kubeContext, kubeconfig string, required bool) Ch
 		Kind:     "webhook",
 		Required: required,
 		Run: func(ctx context.Context) Result {
-			if err := ctx.Err(); err != nil {
-				return Result{Err: err}
-			}
-			args := kubectl.Args(kubeContext, kubeconfig)
-			args = append(args, "apply", "--dry-run=server", "-f", "-")
-			var stdout, stderr bytes.Buffer
-			cmd := execwrap.Command("kubectl", args...)
-			cmd.Stdin = strings.NewReader(certManagerAdmissionCheckManifest)
-			cmd.Stdout = &stdout
-			cmd.Stderr = &stderr
-			if err := cmd.Run(); err != nil {
-				msg := strings.TrimSpace(stderr.String())
-				if msg == "" {
-					msg = err.Error()
-				}
-				return Result{Exists: true, Status: StatusPending, Message: msg}
-			}
-			return Result{Exists: true, Ready: true, Status: StatusReady, Message: "Certificate admission dry-run succeeded"}
+			return checkCertManagerAdmission(ctx, kubeContext, kubeconfig)
 		},
 	}
+}
+
+// checkCertManagerAdmission runs the cert-manager Certificate admission dry-run.
+func checkCertManagerAdmission(ctx context.Context, kubeContext, kubeconfig string) Result {
+	if err := ctx.Err(); err != nil {
+		return Result{Err: err}
+	}
+	args := kubectl.Args(kubeContext, kubeconfig)
+	args = append(args, "apply", "--dry-run=server", "-f", "-")
+	var stdout, stderr bytes.Buffer
+	cmd := execwrap.Command("kubectl", args...)
+	cmd.Stdin = strings.NewReader(certManagerAdmissionCheckManifest)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return Result{Exists: true, Status: StatusPending, Message: msg}
+	}
+	return Result{Exists: true, Ready: true, Status: StatusReady, Message: "Certificate admission dry-run succeeded"}
 }

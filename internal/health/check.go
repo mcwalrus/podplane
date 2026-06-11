@@ -7,6 +7,7 @@ package health
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // Status is the current state of a health check.
@@ -32,11 +33,14 @@ type Result struct {
 
 // Check is a reusable cluster health check.
 type Check struct {
-	Key      string
-	Name     string
-	Kind     string
-	Required bool
-	Run      func(context.Context) Result
+	Key       string
+	Name      string
+	Kind      string
+	Required  bool
+	DependsOn []string
+	Expected  time.Duration
+	Timeout   time.Duration
+	Run       func(context.Context) Result
 }
 
 // RunChecks observes all checks once.

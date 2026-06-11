@@ -4,19 +4,144 @@
 
 package tui
 
-import "github.com/podplane/podplane/internal/health"
+import (
+	"context"
+	"fmt"
+	"os"
+	"time"
 
-// RunHealthProgress renders health checks with the generic status progress UI.
-func RunHealthProgress(title string, checks []health.Check, poll func() (map[string]health.Result, error)) error {
-	items := healthStatusProgressItems(checks)
-	required := requiredHealthStatusProgressItems(checks)
-	return RunStatusProgress(title, items, required, func() (map[string]StatusProgressStatus, error) {
-		results, err := poll()
-		if err != nil {
-			return nil, err
+	"github.com/podplane/podplane/internal/health"
+)
+
+// HealthProgressOptions configures health check progress rendering.
+type HealthProgressOptions struct {
+	Context        context.Context
+	Title          string
+	ShowTiming     bool
+	SuccessMessage string
+}
+
+// RunHealthProgress renders dependency-aware health checks with the generic
+// status progress UI.
+func RunHealthProgress(opts HealthProgressOptions, checks []health.Check) error {
+	if len(checks) == 0 {
+		return nil
+	}
+	ctx := opts.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	title := opts.Title
+	if title == "" {
+		title = "Checking health"
+	}
+	if opts.ShowTiming {
+		if expected := healthCriticalPathExpected(checks); expected > 0 {
+			title = fmt.Sprintf("%s · expected ~%s", title, formatDuration(expected))
 		}
-		return healthStatusProgressStatuses(results), nil
-	})
+	}
+	poller := newHealthProgressPoller(ctx, checks, opts.ShowTiming)
+	if err := RunStatusProgress(title, healthStatusProgressItems(checks), requiredHealthStatusProgressItems(checks), poller.poll); err != nil {
+		return err
+	}
+	if opts.ShowTiming && opts.SuccessMessage != "" {
+		fmt.Fprintf(os.Stdout, "✓ %s in %s\n", opts.SuccessMessage, formatDuration(poller.elapsed()))
+	}
+	return nil
+}
+
+type healthProgressPoller struct {
+	ctx       context.Context
+	checks    []health.Check
+	checkByID map[string]health.Check
+	showTime  bool
+	startedAt map[string]time.Time
+	doneAt    map[string]time.Time
+	statuses  map[string]health.Result
+	firstPoll time.Time
+}
+
+// newHealthProgressPoller creates the stateful poller used by RunHealthProgress.
+func newHealthProgressPoller(ctx context.Context, checks []health.Check, showTime bool) *healthProgressPoller {
+	checkByID := make(map[string]health.Check, len(checks))
+	for _, check := range checks {
+		checkByID[check.Key] = check
+	}
+	return &healthProgressPoller{
+		ctx:       ctx,
+		checks:    checks,
+		checkByID: checkByID,
+		showTime:  showTime,
+		startedAt: map[string]time.Time{},
+		doneAt:    map[string]time.Time{},
+		statuses:  map[string]health.Result{},
+	}
+}
+
+// poll observes every unblocked health check once.
+func (p *healthProgressPoller) poll() (map[string]StatusProgressStatus, error) {
+	if p.firstPoll.IsZero() {
+		p.firstPoll = time.Now()
+	}
+	now := time.Now()
+	if err := p.ctx.Err(); err != nil {
+		return nil, err
+	}
+	for _, check := range p.checks {
+		if p.statuses[check.Key].Ready {
+			continue
+		}
+		if dep := p.blockingDependency(check); dep != "" {
+			p.statuses[check.Key] = health.Result{Status: health.Status("Blocked"), Message: "waiting for " + dep}
+			continue
+		}
+		if p.startedAt[check.Key].IsZero() {
+			p.startedAt[check.Key] = now
+		}
+		if check.Timeout > 0 && now.Sub(p.startedAt[check.Key]) > check.Timeout {
+			return nil, fmt.Errorf("%s timed out after %s", check.Name, formatDuration(check.Timeout))
+		}
+		if check.Run == nil {
+			return nil, fmt.Errorf("health check %q has no run function", check.Key)
+		}
+		result := check.Run(p.ctx)
+		if result.Err != nil {
+			return nil, result.Err
+		}
+		if result.Status == "" {
+			if result.Ready {
+				result.Status = health.StatusReady
+			} else {
+				result.Status = health.StatusPending
+			}
+		}
+		if result.Ready {
+			p.doneAt[check.Key] = now
+		}
+		p.statuses[check.Key] = result
+	}
+	return healthStatusProgressStatuses(p.checks, p.statuses, p.startedAt, p.doneAt, p.showTime), nil
+}
+
+// blockingDependency returns the display name of the first unresolved dependency.
+func (p *healthProgressPoller) blockingDependency(check health.Check) string {
+	for _, dep := range check.DependsOn {
+		if !p.statuses[dep].Ready {
+			if depCheck, ok := p.checkByID[dep]; ok && depCheck.Name != "" {
+				return depCheck.Name
+			}
+			return dep
+		}
+	}
+	return ""
+}
+
+// elapsed returns wall-clock duration since health checks first polled.
+func (p *healthProgressPoller) elapsed() time.Duration {
+	if p.firstPoll.IsZero() {
+		return 0
+	}
+	return time.Since(p.firstPoll)
 }
 
 // healthStatusProgressItems converts reusable health checks into TUI rows.
@@ -42,15 +167,75 @@ func requiredHealthStatusProgressItems(checks []health.Check) []StatusProgressIt
 
 // healthStatusProgressStatuses converts health check results into TUI status
 // snapshots.
-func healthStatusProgressStatuses(results map[string]health.Result) map[string]StatusProgressStatus {
+func healthStatusProgressStatuses(checks []health.Check, results map[string]health.Result, startedAt, doneAt map[string]time.Time, showTime bool) map[string]StatusProgressStatus {
 	out := make(map[string]StatusProgressStatus, len(results))
-	for key, result := range results {
-		out[key] = StatusProgressStatus{
+	for _, check := range checks {
+		result := results[check.Key]
+		status := string(result.Status)
+		if showTime {
+			status = healthTimedStatus(check, result, startedAt[check.Key], doneAt[check.Key])
+		}
+		out[check.Key] = StatusProgressStatus{
 			Exists:  result.Exists,
 			Ready:   result.Ready,
-			Status:  string(result.Status),
+			Status:  status,
 			Message: result.Message,
 		}
 	}
 	return out
+}
+
+// healthTimedStatus renders elapsed and expected timing for one health row.
+func healthTimedStatus(check health.Check, result health.Result, startedAt, doneAt time.Time) string {
+	if result.Status == health.Status("Blocked") || startedAt.IsZero() {
+		return string(result.Status)
+	}
+	if result.Ready {
+		if doneAt.IsZero() {
+			return string(result.Status)
+		}
+		return formatDuration(doneAt.Sub(startedAt))
+	}
+	elapsed := time.Since(startedAt)
+	if check.Expected <= 0 {
+		return formatDuration(elapsed)
+	}
+	return fmt.Sprintf("%s/~%s", formatDuration(elapsed), formatDuration(check.Expected))
+}
+
+// healthCriticalPathExpected returns the longest dependency-path expected time.
+func healthCriticalPathExpected(checks []health.Check) time.Duration {
+	byID := make(map[string]health.Check, len(checks))
+	for _, check := range checks {
+		byID[check.Key] = check
+	}
+	memo := map[string]time.Duration{}
+	var path func(string) time.Duration
+	path = func(key string) time.Duration {
+		if v, ok := memo[key]; ok {
+			return v
+		}
+		check, ok := byID[key]
+		if !ok {
+			return 0
+		}
+		var deps time.Duration
+		for _, dep := range check.DependsOn {
+			if d := path(dep); d > deps {
+				deps = d
+			}
+		}
+		memo[key] = deps + check.Expected
+		return memo[key]
+	}
+	var total time.Duration
+	for _, check := range checks {
+		if !check.Required {
+			continue
+		}
+		if d := path(check.Key); d > total {
+			total = d
+		}
+	}
+	return total
 }

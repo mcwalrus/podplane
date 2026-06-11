@@ -158,9 +158,12 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 		if len(checks) > 0 {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
-			if err := tui.RunHealthProgress("Checking local cluster components", checks, func() (map[string]health.Result, error) {
-				return health.RunChecks(ctx, checks)
-			}); err != nil {
+			if err := tui.RunHealthProgress(tui.HealthProgressOptions{
+				Context:        ctx,
+				Title:          "Checking local cluster components",
+				ShowTiming:     true,
+				SuccessMessage: "Local cluster components ready",
+			}, checks); err != nil {
 				return fmt.Errorf("local cluster health check failed: %w", err)
 			}
 		}
