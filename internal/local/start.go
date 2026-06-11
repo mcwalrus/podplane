@@ -220,7 +220,11 @@ func (m *Local) Start(opts StartOptions) (string, error) {
 	if apiPort == 0 {
 		return "", fmt.Errorf("local server is missing ingress HTTPS port")
 	}
-	stashPath, err := m.WriteLocalClusterConfig(clusterID, hostOIDCIssuer, m.OIDCCACertPath(), LocalKubernetesAPIHostname(clusterID), apiPort, seed)
+	componentsSource, err := localComponentsSource(depsManager, seed)
+	if err != nil {
+		return "", err
+	}
+	stashPath, err := m.WriteLocalClusterConfig(clusterID, hostOIDCIssuer, m.OIDCCACertPath(), LocalKubernetesAPIHostname(clusterID), apiPort, seed, componentsSource)
 	if err != nil {
 		return "", fmt.Errorf("failed to write local cluster config: %w", err)
 	}
@@ -526,7 +530,7 @@ func (m *Local) getSeedConfig(clusterID string) (clusterconfig.Seed, error) {
 // <dataDir>/local/<clusterID>/cluster.jsonc and returns its absolute path. It
 // describes how the host CLI can reach the local cluster's OIDC issuer and
 // (eventually) Kubernetes API.
-func (m *Local) WriteLocalClusterConfig(clusterID, oidcIssuerURL, oidcCACertPath, apiHostname string, apiPort int, seed clusterconfig.Seed) (string, error) {
+func (m *Local) WriteLocalClusterConfig(clusterID, oidcIssuerURL, oidcCACertPath, apiHostname string, apiPort int, seed clusterconfig.Seed, componentsSource *clusterconfig.ComponentsSource) (string, error) {
 	dir := ClusterDataDir(m.dataDir, clusterID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create %s: %w", dir, err)
@@ -549,6 +553,16 @@ func (m *Local) WriteLocalClusterConfig(clusterID, oidcIssuerURL, oidcCACertPath
       "version": %q
     },
 `, seed.Name, seed.Version)
+	}
+	componentsSourceBlock := ""
+	if componentsSource != nil {
+		componentsSourceBlock = fmt.Sprintf(`      "source": {
+        "url": %q,
+        "ref": {
+          "tag": %q
+        }
+      },
+`, componentsSource.URL, componentsSource.Ref.Tag)
 	}
 	registryHostname := localRegistryHostname(clusterID)
 	path := ClusterConfigPath(m.dataDir, clusterID)
@@ -578,6 +592,7 @@ func (m *Local) WriteLocalClusterConfig(clusterID, oidcIssuerURL, oidcCACertPath
     },
 %s
     "components": {
+%s
       "registry": {
         "mirror": {
           "enabled": true,
@@ -587,11 +602,27 @@ func (m *Local) WriteLocalClusterConfig(clusterID, oidcIssuerURL, oidcCACertPath
     }
   }
 }
-`, clusterID, clusterID, "local-"+clusterID, oidcIssuerURL, clusterID, oidcCACertPath, clusterID+".localhost", apiHostname, apiPort, seedBlock, registryHostname)
+`, clusterID, clusterID, "local-"+clusterID, oidcIssuerURL, clusterID, oidcCACertPath, clusterID+".localhost", apiHostname, apiPort, seedBlock, componentsSourceBlock, registryHostname)
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		return "", fmt.Errorf("write %s: %w", path, err)
 	}
 	return path, nil
+}
+
+// localComponentsSource returns the components Git source pinned to the cached
+// components manifest version used by local seeded clusters.
+func localComponentsSource(depsManager *deps.Manager, seed clusterconfig.Seed) (*clusterconfig.ComponentsSource, error) {
+	if seed.Name == seeds.None {
+		return nil, nil
+	}
+	version, err := depsManager.CachedComponentsVersion()
+	if err != nil {
+		return nil, fmt.Errorf("determine Podplane components version: %w", err)
+	}
+	return &clusterconfig.ComponentsSource{
+		URL: "https://github.com/podplane/components.git",
+		Ref: clusterconfig.ComponentsSourceRef{Tag: "v" + version},
+	}, nil
 }
 
 func localRegistryHostname(clusterID string) string {

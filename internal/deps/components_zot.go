@@ -218,6 +218,9 @@ func componentImageCached(destDir string, image ComponentImage) (bool, error) {
 			return false, err
 		}
 		for _, entry := range index.Manifests {
+			if entry.Digest != image.Digest && imageMatchesDescriptorPlatform(image, entry) {
+				return false, nil
+			}
 			if entry.Digest != image.Digest {
 				continue
 			}
@@ -246,6 +249,19 @@ func componentImageCached(destDir string, image ComponentImage) (bool, error) {
 		return descriptorBlobsComplete(repoDir, entry.Digest)
 	}
 	return false, nil
+}
+
+// imageMatchesDescriptorPlatform reports whether a cached descriptor targets
+// the same OS and architecture as a component image.
+func imageMatchesDescriptorPlatform(image ComponentImage, desc ociDescriptor) bool {
+	if image.Platform == "" || desc.Platform == nil {
+		return false
+	}
+	parts := strings.Split(image.Platform, "/")
+	if len(parts) < 2 {
+		return false
+	}
+	return desc.Platform.OS == parts[0] && desc.Platform.Architecture == parts[1]
 }
 
 // indexHasDigest reports whether an OCI index contains a descriptor digest.
@@ -654,5 +670,5 @@ func samePlatform(a, b *ociPlatform) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return a.OS == b.OS && a.Architecture == b.Architecture && a.Variant == b.Variant
+	return a.OS == b.OS && a.Architecture == b.Architecture && (a.Variant == b.Variant || a.Variant == "" || b.Variant == "")
 }

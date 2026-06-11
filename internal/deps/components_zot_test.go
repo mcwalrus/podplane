@@ -251,6 +251,56 @@ func TestComponentImageCachedRequiresTopLevelChildManifest(t *testing.T) {
 	}
 }
 
+// TestComponentImageCachedRejectsDuplicateSameArchManifest verifies stale tag
+// indexes with duplicate architecture entries are repaired.
+func TestComponentImageCachedRejectsDuplicateSameArchManifest(t *testing.T) {
+	destDir := t.TempDir()
+	oldBody := []byte(`{"schemaVersion":2,"old":true}`)
+	oldSum := sha256.Sum256(oldBody)
+	oldDigest := "sha256:" + hex.EncodeToString(oldSum[:])
+	newBody := []byte(`{"schemaVersion":2,"old":false}`)
+	newSum := sha256.Sum256(newBody)
+	newDigest := "sha256:" + hex.EncodeToString(newSum[:])
+	image := ComponentImage{
+		Component: "test",
+		Image:     "example.com/test/app:v1",
+		Digest:    newDigest,
+		Size:      int64(len(newBody)),
+		Platform:  "linux/arm64/v8",
+	}
+	repoDir := filepath.Join(destDir, zotRootDirectory, filepath.FromSlash(mirrorRepoFromChartImage(image.Image)))
+	if err := os.MkdirAll(filepath.Join(repoDir, "blobs", "sha256"), 0o755); err != nil {
+		t.Fatalf("create blobs dir: %v", err)
+	}
+	if err := writeDigestBlob(repoDir, oldDigest, oldBody); err != nil {
+		t.Fatalf("write old blob: %v", err)
+	}
+	if err := writeDigestBlob(repoDir, newDigest, newBody); err != nil {
+		t.Fatalf("write new blob: %v", err)
+	}
+	if err := upsertTaggedImageIndex(repoDir, "v1", ociDescriptor{Digest: oldDigest, Size: int64(len(oldBody)), Platform: &ociPlatform{OS: "linux", Architecture: "arm64"}}); err != nil {
+		t.Fatalf("upsert old manifest: %v", err)
+	}
+	if err := upsertTaggedImageIndex(repoDir, "v1", ociDescriptor{Digest: newDigest, Size: int64(len(newBody)), Platform: &ociPlatform{OS: "linux", Architecture: "arm64", Variant: "v8"}}); err != nil {
+		t.Fatalf("upsert new manifest: %v", err)
+	}
+
+	index, err := readTaggedImageIndex(repoDir, "v1")
+	if err != nil {
+		t.Fatalf("read tagged index: %v", err)
+	}
+	if len(index.Manifests) != 1 || index.Manifests[0].Digest != newDigest {
+		t.Fatalf("tagged index manifests = %#v, want only %s", index.Manifests, newDigest)
+	}
+	cached, err := componentImageCached(destDir, image)
+	if err != nil {
+		t.Fatalf("componentImageCached returned error: %v", err)
+	}
+	if !cached {
+		t.Fatal("componentImageCached returned false after duplicate repair")
+	}
+}
+
 func TestTaggedImageIndexPreservesMultiplePlatforms(t *testing.T) {
 	repoDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repoDir, "blobs", "sha256"), 0o755); err != nil {

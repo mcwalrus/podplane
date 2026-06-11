@@ -122,7 +122,7 @@ func TestEnsureInitialNetsySnapshotWritesSnapshot(t *testing.T) {
 func TestGetSeedConfigReadsSavedValue(t *testing.T) {
 	dir := t.TempDir()
 	m := &Local{dataDir: dir}
-	if _, err := m.WriteLocalClusterConfig("dev", "https://oidc.localhost:1/oidc", "/tmp/ca.pem", LocalKubernetesAPIHostname("dev"), 4433, clusterconfig.Seed{Name: seeds.None}); err != nil {
+	if _, err := m.WriteLocalClusterConfig("dev", "https://oidc.localhost:1/oidc", "/tmp/ca.pem", LocalKubernetesAPIHostname("dev"), 4433, clusterconfig.Seed{Name: seeds.None}, nil); err != nil {
 		t.Fatalf("WriteLocalClusterConfig: %v", err)
 	}
 	raw, err := os.ReadFile(ClusterConfigPath(dir, "dev"))
@@ -156,7 +156,7 @@ func TestGetSeedConfigRejectsMissingConfig(t *testing.T) {
 func writeMinimalLocalClusterConfig(t *testing.T, dataDir, clusterID string) string {
 	t.Helper()
 	manager := &Local{dataDir: dataDir}
-	path, err := manager.WriteLocalClusterConfig(clusterID, "https://oidc.localhost:1/oidc", "/tmp/ca.pem", LocalKubernetesAPIHostname(clusterID), 4433, clusterconfig.Seed{Name: seeds.Recommended, Version: testSeedVersion})
+	path, err := manager.WriteLocalClusterConfig(clusterID, "https://oidc.localhost:1/oidc", "/tmp/ca.pem", LocalKubernetesAPIHostname(clusterID), 4433, clusterconfig.Seed{Name: seeds.Recommended, Version: testSeedVersion}, nil)
 	if err != nil {
 		t.Fatalf("WriteLocalClusterConfig: %v", err)
 	}

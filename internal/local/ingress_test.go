@@ -159,7 +159,11 @@ func TestLocalIngressProxyShowsPlaceholderForMissingClusterState(t *testing.T) {
 
 func TestWriteLocalClusterConfigUsesReservedKubernetesAPIHost(t *testing.T) {
 	manager := &Local{dataDir: t.TempDir()}
-	path, err := manager.WriteLocalClusterConfig("dev", "https://oidc.localhost:1234/oidc", "/tmp/oidc-ca.pem", LocalKubernetesAPIHostname("dev"), 4433, clusterconfig.Seed{Name: seeds.Recommended, Version: testSeedVersion})
+	componentsSource := &clusterconfig.ComponentsSource{
+		URL: "https://github.com/podplane/components.git",
+		Ref: clusterconfig.ComponentsSourceRef{Tag: "v1.2.3"},
+	}
+	path, err := manager.WriteLocalClusterConfig("dev", "https://oidc.localhost:1234/oidc", "/tmp/oidc-ca.pem", LocalKubernetesAPIHostname("dev"), 4433, clusterconfig.Seed{Name: seeds.Recommended, Version: testSeedVersion}, componentsSource)
 	if err != nil {
 		t.Fatalf("WriteLocalClusterConfig: %v", err)
 	}
@@ -167,7 +171,7 @@ func TestWriteLocalClusterConfigUsesReservedKubernetesAPIHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read cluster config: %v", err)
 	}
-	for _, want := range []string{`"issuer_url": "https://oidc.localhost:1234/oidc"`, `"ca_cert": "/tmp/oidc-ca.pem"`, `"api_hostname": "dev.k8s.localhost"`, `"api_port": 4433`} {
+	for _, want := range []string{`"issuer_url": "https://oidc.localhost:1234/oidc"`, `"ca_cert": "/tmp/oidc-ca.pem"`, `"api_hostname": "dev.k8s.localhost"`, `"api_port": 4433`, `"url": "https://github.com/podplane/components.git"`, `"tag": "v1.2.3"`} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("cluster config missing %s:\n%s", want, string(data))
 		}

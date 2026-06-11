@@ -7,6 +7,7 @@ package deps
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -54,4 +55,20 @@ func (m *Manager) WriteCachedComponentsManifest(raw []byte) error {
 		return fmt.Errorf("failed to write cached components manifest: %w", err)
 	}
 	return nil
+}
+
+// CachedComponentsVersion returns the version from the cached components manifest.
+func (m *Manager) CachedComponentsVersion() (string, error) {
+	raw, err := os.ReadFile(m.ComponentsManifestCachePath())
+	if err != nil {
+		return "", fmt.Errorf("read cached components manifest: %w", err)
+	}
+	var manifest ComponentsManifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return "", fmt.Errorf("parse cached components manifest: %w", err)
+	}
+	if manifest.Components.Version == "" {
+		return "", fmt.Errorf("cached components manifest is missing version")
+	}
+	return manifest.Components.Version, nil
 }
