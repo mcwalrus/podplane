@@ -77,6 +77,30 @@ func LocalStartChecks(opts LocalStartOptions) []Check {
 				},
 			},
 			{
+				Key:       "trust-manager",
+				Name:      "trust-manager",
+				Kind:      "deployment",
+				Required:  true,
+				DependsOn: []string{"cert-manager-admission"},
+				Expected:  30 * time.Second,
+				Timeout:   3 * time.Minute,
+				Run: func(ctx context.Context) Result {
+					return readWorkload(ctx, opts.KubeContext, opts.Kubeconfig, "platform-trust-manager", "deployment", "platform-trust-manager")
+				},
+			},
+			{
+				Key:       "default-app-trust-bundle",
+				Name:      "default app trust bundle",
+				Kind:      "configmap",
+				Required:  true,
+				DependsOn: []string{"trust-manager"},
+				Expected:  10 * time.Second,
+				Timeout:   2 * time.Minute,
+				Run: func(ctx context.Context) Result {
+					return checkConfigMapData(ctx, opts.KubeContext, opts.Kubeconfig, "default", "platform-selfsigned-ca-bundle", "ca.crt")
+				},
+			},
+			{
 				Key:       "traefik",
 				Name:      "traefik",
 				Kind:      "daemonset",

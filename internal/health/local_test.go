@@ -9,7 +9,38 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/podplane/podplane/pkg/seeds"
 )
+
+// TestLocalStartRecommendedChecksIncludeTrustPath verifies recommended local
+// start waits for app trust material before reporting deploy-ready health.
+func TestLocalStartRecommendedChecksIncludeTrustPath(t *testing.T) {
+	checks := LocalStartChecks(LocalStartOptions{SeedName: seeds.Recommended})
+	byKey := map[string]Check{}
+	for _, check := range checks {
+		byKey[check.Key] = check
+	}
+
+	trustManager, ok := byKey["trust-manager"]
+	if !ok {
+		t.Fatal("recommended checks missing trust-manager")
+	}
+	if got, want := trustManager.DependsOn, []string{"cert-manager-admission"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("trust-manager dependencies = %v, want %v", got, want)
+	}
+
+	bundle, ok := byKey["default-app-trust-bundle"]
+	if !ok {
+		t.Fatal("recommended checks missing default app trust bundle")
+	}
+	if got, want := bundle.DependsOn, []string{"trust-manager"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("default app trust bundle dependencies = %v, want %v", got, want)
+	}
+	if bundle.Kind != "configmap" || !bundle.Required {
+		t.Fatalf("default app trust bundle = %#v, want required configmap", bundle)
+	}
+}
 
 // TestCheckLocalIngressProxyAcceptsTraefikNotFound verifies Traefik route
 // misses still prove the local ingress proxy reached Traefik.
