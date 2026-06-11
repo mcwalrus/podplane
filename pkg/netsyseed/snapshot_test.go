@@ -76,6 +76,82 @@ func TestInterpolateComponentsSourceUpdatesGitRepository(t *testing.T) {
 	}
 }
 
+func TestRewriteSeedImagesPrefixesAllJSONImageFields(t *testing.T) {
+	records := []*datafile.Record{
+		{Key: []byte("/registry/deployments/platform-flux/source-controller"), Value: []byte(`{"apiVersion":"apps/v1","kind":"Deployment","spec":{"template":{"spec":{"initContainers":[{"image":"docker.io/library/busybox:1"}],"containers":[{"image":"ghcr.io/fluxcd/source-controller:v1.5.0"}],"ephemeralContainers":[{"image":"dev-registry.local/docker.io/library/alpine:3"}]}}}}`)},
+		{Key: []byte("/registry/configmaps/default/ignored"), Value: []byte(`not json`)},
+	}
+
+	if err := rewriteSeedImages(records, "dev-registry.local/"); err != nil {
+		t.Fatalf("rewriteSeedImages error = %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(records[0].Value, &got); err != nil {
+		t.Fatalf("unmarshal rewritten record: %v", err)
+	}
+	podSpec := got["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
+	if image := containerImage(t, podSpec, "initContainers", 0); image != "dev-registry.local/docker.io/library/busybox:1" {
+		t.Fatalf("init image = %q, want mirrored", image)
+	}
+	if image := containerImage(t, podSpec, "containers", 0); image != "dev-registry.local/ghcr.io/fluxcd/source-controller:v1.5.0" {
+		t.Fatalf("container image = %q, want mirrored", image)
+	}
+	if image := containerImage(t, podSpec, "ephemeralContainers", 0); image != "dev-registry.local/docker.io/library/alpine:3" {
+		t.Fatalf("ephemeral image = %q, want already-mirrored image unchanged", image)
+	}
+	if string(records[1].Value) != `not json` {
+		t.Fatalf("non-JSON record changed: %s", records[1].Value)
+	}
+}
+
+func TestRewriteImageFields(t *testing.T) {
+	obj := map[string]any{
+		"image": "docker.io/library/top-level:1",
+		"spec": map[string]any{
+			"containers": []any{
+				map[string]any{"image": "ghcr.io/example/app:v1"},
+				map[string]any{"image": "dev-registry.local/docker.io/library/alpine:3"},
+				map[string]any{"image": ""},
+			},
+			"notImage": "ghcr.io/example/ignored:v1",
+		},
+	}
+
+	if !rewriteImageFields(obj, "dev-registry.local") {
+		t.Fatalf("rewriteImageFields reported no changes")
+	}
+	if got, want := obj["image"], "dev-registry.local/docker.io/library/top-level:1"; got != want {
+		t.Fatalf("top-level image = %v, want %v", got, want)
+	}
+	spec := obj["spec"].(map[string]any)
+	containers := spec["containers"].([]any)
+	first := containers[0].(map[string]any)
+	if got, want := first["image"], "dev-registry.local/ghcr.io/example/app:v1"; got != want {
+		t.Fatalf("nested image = %v, want %v", got, want)
+	}
+	second := containers[1].(map[string]any)
+	if got, want := second["image"], "dev-registry.local/docker.io/library/alpine:3"; got != want {
+		t.Fatalf("already mirrored image = %v, want unchanged %v", got, want)
+	}
+	third := containers[2].(map[string]any)
+	if got, want := third["image"], ""; got != want {
+		t.Fatalf("empty image = %v, want unchanged empty", got)
+	}
+	if got, want := spec["notImage"], "ghcr.io/example/ignored:v1"; got != want {
+		t.Fatalf("non-image field = %v, want unchanged %v", got, want)
+	}
+	if rewriteImageFields(obj, "dev-registry.local") {
+		t.Fatalf("rewriteImageFields was not idempotent")
+	}
+}
+
+func containerImage(t *testing.T, podSpec map[string]any, field string, index int) string {
+	t.Helper()
+	items := podSpec[field].([]any)
+	container := items[index].(map[string]any)
+	return container["image"].(string)
+}
+
 func TestMergeValuesFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "values.yaml")
@@ -129,6 +205,9 @@ func TestWriteSnapshotWritesBytes(t *testing.T) {
 		Domains: []clusterconfig.Domain{
 			{Zone: "local.localhost", Provider: clusterconfig.DomainProvider{Kind: "local"}},
 		},
+		Components: clusterconfig.Components{Registry: &clusterconfig.ComponentsRegistry{
+			Mirror: clusterconfig.ComponentsRegistryMirror{Enabled: true, Hostname: "dev-registry.local"},
+		}},
 	}}
 	// Patch validation by re-marshalling and using a non-reserved ID for Load().
 	cfg.Cluster.ID = "localdev"
@@ -146,6 +225,7 @@ func TestWriteSnapshotWritesBytes(t *testing.T) {
 	// over HTTP so loadSeedFile's URL path is exercised.
 	records := []*datafile.Record{
 		{Revision: 5, Key: []byte(platformComponentsHelmReleaseKey), Value: []byte(`{"apiVersion":"helm.toolkit.fluxcd.io/v2","kind":"HelmRelease","metadata":{"name":"platform-components","namespace":"platform-components"},"spec":{"values":{}}}`)},
+		{Revision: 6, Key: []byte("/registry/deployments/platform-flux/source-controller"), Value: []byte(`{"apiVersion":"apps/v1","kind":"Deployment","spec":{"template":{"spec":{"containers":[{"image":"ghcr.io/fluxcd/source-controller:v1.5.0"}]}}}}`)},
 	}
 	var buf bytes.Buffer
 	if err := datafile.WriteSnapshot(&buf, records, "localdev"); err != nil {
@@ -179,19 +259,35 @@ func TestWriteSnapshotWritesBytes(t *testing.T) {
 	}
 	var found bool
 	for _, r := range got {
-		if string(r.Key) != platformComponentsHelmReleaseKey {
+		switch string(r.Key) {
+		case platformComponentsHelmReleaseKey:
+			var obj map[string]any
+			if err := json.Unmarshal(r.Value, &obj); err != nil {
+				t.Fatalf("unmarshal HelmRelease: %v", err)
+			}
+			components := obj["spec"].(map[string]any)["values"].(map[string]any)["platform"].(map[string]any)["components"].(map[string]any)
+			traefik := components["values"].(map[string]any)["traefik"].(map[string]any)
+			zone := traefik["platform"].(map[string]any)["traefik"].(map[string]any)["ingress"].(map[string]any)["domains"].([]any)[0].(map[string]any)["zone"]
+			if zone != "local.localhost" {
+				t.Fatalf("seeded ingress zone = %v, want local.localhost", zone)
+			}
+			mirror := components["registry"].(map[string]any)["mirror"].(map[string]any)
+			if mirror["enabled"] != true || mirror["hostname"] != "dev-registry.local" {
+				t.Fatalf("registry mirror = %#v, want enabled dev-registry.local", mirror)
+			}
+			found = true
+		case "/registry/deployments/platform-flux/source-controller":
+			var obj map[string]any
+			if err := json.Unmarshal(r.Value, &obj); err != nil {
+				t.Fatalf("unmarshal Deployment: %v", err)
+			}
+			podSpec := obj["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
+			if image := containerImage(t, podSpec, "containers", 0); image != "dev-registry.local/ghcr.io/fluxcd/source-controller:v1.5.0" {
+				t.Fatalf("seeded Deployment image = %q, want mirrored", image)
+			}
+		default:
 			continue
 		}
-		var obj map[string]any
-		if err := json.Unmarshal(r.Value, &obj); err != nil {
-			t.Fatalf("unmarshal HelmRelease: %v", err)
-		}
-		traefik := obj["spec"].(map[string]any)["values"].(map[string]any)["platform"].(map[string]any)["components"].(map[string]any)["values"].(map[string]any)["traefik"].(map[string]any)
-		zone := traefik["platform"].(map[string]any)["traefik"].(map[string]any)["ingress"].(map[string]any)["domains"].([]any)[0].(map[string]any)["zone"]
-		if zone != "local.localhost" {
-			t.Fatalf("seeded ingress zone = %v, want local.localhost", zone)
-		}
-		found = true
 	}
 	if !found {
 		t.Fatalf("platform-components HelmRelease not found in built snapshot")

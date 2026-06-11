@@ -63,6 +63,11 @@ func WriteSnapshot(w io.Writer, opts SnapshotOptions) error {
 	if err := interpolateComponentsSource(records, cluster.Cluster.Components.Source); err != nil {
 		return err
 	}
+	if cluster.Cluster.Components.Registry != nil && cluster.Cluster.Components.Registry.Mirror.Enabled {
+		if err := rewriteSeedImages(records, cluster.Cluster.Components.Registry.Mirror.Hostname); err != nil {
+			return err
+		}
+	}
 	if err := datafile.WriteSnapshot(w, records, cluster.Cluster.ID); err != nil {
 		return fmt.Errorf("write Netsy snapshot: %w", err)
 	}
@@ -154,6 +159,62 @@ func interpolatePlatformComponents(records []*datafile.Record, values map[string
 		return nil
 	}
 	return fmt.Errorf("Podplane seed file does not contain the platform-components HelmRelease at %s", platformComponentsHelmReleaseKey)
+}
+
+// rewriteSeedImages prefixes JSON image fields with the configured registry
+// mirror host. Seedgen is responsible for normalizing image references before
+// Podplane receives the seed.
+func rewriteSeedImages(records []*datafile.Record, mirrorHostname string) error {
+	mirrorHostname = strings.TrimSuffix(mirrorHostname, "/")
+	if mirrorHostname == "" {
+		return nil
+	}
+	for i := range records {
+		var obj any
+		if err := json.Unmarshal(records[i].Value, &obj); err != nil {
+			continue
+		}
+		if !rewriteImageFields(obj, mirrorHostname) {
+			continue
+		}
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(obj); err != nil {
+			return fmt.Errorf("encode image-rewritten seed record %s: %w", records[i].Key, err)
+		}
+		records[i].Value = bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
+	}
+	return nil
+}
+
+// rewriteImageFields recursively prefixes string fields named image with the
+// configured mirror hostname.
+func rewriteImageFields(value any, mirrorHostname string) bool {
+	var changed bool
+	switch v := value.(type) {
+	case map[string]any:
+		for key, child := range v {
+			if key == "image" {
+				image, ok := child.(string)
+				if ok && image != "" && !strings.HasPrefix(image, mirrorHostname+"/") {
+					v[key] = mirrorHostname + "/" + image
+					changed = true
+				}
+				continue
+			}
+			if rewriteImageFields(child, mirrorHostname) {
+				changed = true
+			}
+		}
+	case []any:
+		for _, child := range v {
+			if rewriteImageFields(child, mirrorHostname) {
+				changed = true
+			}
+		}
+	}
+	return changed
 }
 
 // interpolateComponentsSource updates the bootstrap GitRepository used by Flux
