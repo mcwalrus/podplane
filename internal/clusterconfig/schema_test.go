@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -18,6 +19,9 @@ func TestClusterSchemaJSONIsValidJSON(t *testing.T) {
 	}
 	if got := schema["title"]; got != "Podplane cluster config" {
 		t.Fatalf("schema title = %v, want Podplane cluster config", got)
+	}
+	if _, ok := schema["$comment"]; ok {
+		t.Fatal("source schema should not contain generated-copy $comment")
 	}
 }
 
@@ -53,7 +57,15 @@ func TestWriteSchemaWritesLocalSchemaFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(raw) != ClusterSchemaJSON {
-		t.Fatal("schema file content did not match ClusterSchemaJSON")
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatalf("written schema is invalid JSON: %v", err)
+	}
+	comment, ok := schema["$comment"].(string)
+	if !ok {
+		t.Fatal("written schema missing generated-copy $comment")
+	}
+	if !strings.Contains(comment, "schemas/podplane.cluster.schema.json") {
+		t.Fatalf("written schema $comment = %q, want source schema path", comment)
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	schemaassets "github.com/podplane/podplane/schemas"
+	"github.com/podplane/podplane/schemas"
 )
 
 // SchemaFileName is the local JSON Schema file written next to cluster configs.
@@ -19,13 +19,14 @@ const SchemaFileName = "podplane.cluster.schema.json"
 const DefaultSchemaRef = "./" + SchemaFileName
 
 // ClusterSchemaJSON is the JSON Schema for podplane.cluster.jsonc files.
-var ClusterSchemaJSON = schemaassets.ClusterSchemaJSON
+var ClusterSchemaJSON = schemas.ClusterSchemaJSON
 
 // WriteSchema writes the local JSON Schema file used by editors for offline
 // validation, completion, and hover documentation.
 func WriteSchema(dir string) error {
 	path := filepath.Join(dir, SchemaFileName)
-	if err := os.WriteFile(path, []byte(ClusterSchemaJSON), 0o644); err != nil {
+	content := schemas.GeneratedSchemaCopy(ClusterSchemaJSON, "schemas/podplane.cluster.schema.json")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
