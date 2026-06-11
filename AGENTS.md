@@ -30,6 +30,13 @@ Keep command behavior aligned with the command context model documented in
 - `logout` may accept `--cluster` or explicit `-f, --cluster-config` for cleanup, but must not implicitly read `./podplane.cluster.jsonc`.
 - Hide integration-only commands from top-level help when they are not user-facing, such as `hooks`.
 
+## Config Schemas
+
+- JSON Schemas for user-authored config files live in `schemas/` and are embedded by the `schemas` Go package.
+- Generated `podplane.cluster.jsonc` and `podplane.oidc.jsonc` should use local relative `$schema` references (`./podplane.cluster.schema.json`, `./podplane.oidc.schema.json`) so tools using them can work offline.
+- When changing config structs, validation rules, defaults, or config docs, update the corresponding schema file and tests in `internal/clusterconfig` or `internal/oidcconfig`.
+- Generated schema copies (`podplane.*.schema.json`) are CLI-managed support files, similar to generated `podplane.*.tf` files; the source of truth is the checked-in file under `schemas/`.
+
 ## Code Style
 
 - **File headers**: include the Podplane copyright and SPDX header on Go files.
