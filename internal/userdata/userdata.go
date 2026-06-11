@@ -322,7 +322,7 @@ func (v *TemplateVars) Render() (string, error) {
 	if err := v.Validate(); err != nil {
 		return "", err
 	}
-	tmpl, err := template.New("userdata").Parse(userdataTemplate)
+	tmpl, err := template.New("userdata").Option("missingkey=zero").Parse(userdataTemplate)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse userdata template: %w", err)
 	}

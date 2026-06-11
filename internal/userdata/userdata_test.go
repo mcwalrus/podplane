@@ -162,6 +162,9 @@ func TestRender_Local_HasDebianPasswordLine(t *testing.T) {
 	if strings.Contains(out, "amazon-ssm-agent") {
 		t.Errorf("did not expect local user-data to include AWS SSM bootstrap; got:\n%s", out)
 	}
+	if strings.Contains(out, "<no value>") {
+		t.Errorf("did not expect missing template vars to render as <no value>; got:\n%s", out)
+	}
 	if !strings.Contains(out, "cat > /opt/nstance-agent/identity/nonce.jwt <<'NSTANCE_NONCE_JWT'\nnonce.jwt.value\nNSTANCE_NONCE_JWT") {
 		t.Errorf("expected nstance registration nonce to be written directly to nonce.jwt; got:\n%s", out)
 	}

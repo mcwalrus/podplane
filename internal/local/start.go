@@ -344,6 +344,7 @@ func (m *Local) Start(opts StartOptions) (string, error) {
 	vars.Vars["TELEMETRY_S3_SECRET_ACCESS_KEY"] = "test"
 	vars.Vars["REGISTRY_ACCESS_KEY_ID"] = "test"
 	vars.Vars["REGISTRY_SECRET_ACCESS_KEY"] = "test"
+	vars.Vars["AWS_S3_USE_PATH_STYLE"] = "true"
 	vars.ApplyDefaults()
 	mutableEnv := userdata.RenderMutableEnv(vars.Vars)
 	mutableEnvChanged := false
