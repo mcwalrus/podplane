@@ -173,6 +173,9 @@ func writeComponentImage(ctx context.Context, destDir string, image ComponentIma
 			return fmt.Errorf("write blobs for %s: %w", resolvedImageRef, err)
 		}
 		if chartTag != "" {
+			if err := upsertRepoIndexDescriptor(repoDir, descriptorFromRemote(desc, image.Platform)); err != nil {
+				return err
+			}
 			return upsertTaggedImageDescriptor(repoDir, chartTag, descriptorFromRemote(chartDesc, ""))
 		}
 		index, err := readRepoIndex(repoDir)
@@ -206,6 +209,10 @@ func componentImageCached(destDir string, image ComponentImage) (bool, error) {
 	repoDir := filepath.Join(destDir, zotRootDirectory, filepath.FromSlash(repo))
 	_, wantTag, chartDigest := splitImageRef(image.Image)
 	if wantTag != "" {
+		repoIndex, err := readRepoIndex(repoDir)
+		if err != nil {
+			return false, err
+		}
 		index, err := readTaggedImageIndex(repoDir, wantTag)
 		if err != nil {
 			return false, err
@@ -213,6 +220,9 @@ func componentImageCached(destDir string, image ComponentImage) (bool, error) {
 		for _, entry := range index.Manifests {
 			if entry.Digest != image.Digest {
 				continue
+			}
+			if !indexHasDigest(repoIndex, entry.Digest) {
+				return false, nil
 			}
 			complete, err := descriptorBlobsComplete(repoDir, entry.Digest)
 			if err != nil || !complete {
@@ -236,6 +246,16 @@ func componentImageCached(destDir string, image ComponentImage) (bool, error) {
 		return descriptorBlobsComplete(repoDir, entry.Digest)
 	}
 	return false, nil
+}
+
+// indexHasDigest reports whether an OCI index contains a descriptor digest.
+func indexHasDigest(index ociIndex, digest string) bool {
+	for _, entry := range index.Manifests {
+		if entry.Digest == digest {
+			return true
+		}
+	}
+	return false
 }
 
 // resolvedImage returns the digest-pinned source image reference for an image entry.
@@ -576,6 +596,16 @@ func upsertTaggedImageDescriptor(repoDir, tag string, desc ociDescriptor) error 
 		desc.Annotations = map[string]string{}
 	}
 	desc.Annotations["org.opencontainers.image.ref.name"] = tag
+	upsertIndexDescriptor(&repoIndex, desc)
+	return writeRepoIndex(repoDir, repoIndex)
+}
+
+// upsertRepoIndexDescriptor adds or replaces a descriptor in the repo index.
+func upsertRepoIndexDescriptor(repoDir string, desc ociDescriptor) error {
+	repoIndex, err := readRepoIndex(repoDir)
+	if err != nil {
+		return err
+	}
 	upsertIndexDescriptor(&repoIndex, desc)
 	return writeRepoIndex(repoDir, repoIndex)
 }

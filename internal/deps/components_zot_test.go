@@ -196,6 +196,61 @@ func TestComponentImageCachedRequiresPinnedChartDigest(t *testing.T) {
 	}
 }
 
+// TestComponentImageCachedRequiresTopLevelChildManifest verifies old tag-only
+// repo indexes are repaired before zot serves them.
+func TestComponentImageCachedRequiresTopLevelChildManifest(t *testing.T) {
+	destDir := t.TempDir()
+	childBody := []byte(`{"schemaVersion":2}`)
+	childSum := sha256.Sum256(childBody)
+	childDigest := "sha256:" + hex.EncodeToString(childSum[:])
+	tagIndexBody := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"digest":"` + childDigest + `"}]}`)
+	tagIndexSum := sha256.Sum256(tagIndexBody)
+	tagIndexDigest := "sha256:" + hex.EncodeToString(tagIndexSum[:])
+	image := ComponentImage{
+		Component: "test",
+		Image:     "example.com/test/app:v1",
+		Digest:    childDigest,
+		Size:      int64(len(childBody)),
+	}
+	repoDir := filepath.Join(destDir, zotRootDirectory, filepath.FromSlash(mirrorRepoFromChartImage(image.Image)))
+	if err := os.MkdirAll(filepath.Join(repoDir, "blobs", "sha256"), 0o755); err != nil {
+		t.Fatalf("create blobs dir: %v", err)
+	}
+	if err := writeDigestBlob(repoDir, childDigest, childBody); err != nil {
+		t.Fatalf("write child blob: %v", err)
+	}
+	if err := writeDigestBlob(repoDir, tagIndexDigest, tagIndexBody); err != nil {
+		t.Fatalf("write tag index blob: %v", err)
+	}
+	if err := writeRepoIndex(repoDir, ociIndex{SchemaVersion: 2, MediaType: "application/vnd.oci.image.index.v1+json", Manifests: []ociDescriptor{{
+		MediaType:   "application/vnd.oci.image.index.v1+json",
+		Digest:      tagIndexDigest,
+		Size:        int64(len(tagIndexBody)),
+		Annotations: map[string]string{"org.opencontainers.image.ref.name": "v1"},
+	}}}); err != nil {
+		t.Fatalf("write repo index: %v", err)
+	}
+
+	cached, err := componentImageCached(destDir, image)
+	if err != nil {
+		t.Fatalf("componentImageCached returned error: %v", err)
+	}
+	if cached {
+		t.Fatal("componentImageCached returned true without top-level child manifest")
+	}
+
+	if err := upsertRepoIndexDescriptor(repoDir, ociDescriptor{Digest: childDigest, Size: int64(len(childBody))}); err != nil {
+		t.Fatalf("upsert child manifest: %v", err)
+	}
+	cached, err = componentImageCached(destDir, image)
+	if err != nil {
+		t.Fatalf("componentImageCached returned error after child descriptor: %v", err)
+	}
+	if !cached {
+		t.Fatal("componentImageCached returned false with top-level child manifest")
+	}
+}
+
 func TestTaggedImageIndexPreservesMultiplePlatforms(t *testing.T) {
 	repoDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repoDir, "blobs", "sha256"), 0o755); err != nil {
