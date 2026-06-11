@@ -10,7 +10,8 @@ import (
 )
 
 type Config struct {
-	OIDC OIDC `json:"oidc"`
+	Schema string `json:"$schema,omitempty"`
+	OIDC   OIDC   `json:"oidc"`
 }
 
 type OIDC struct {

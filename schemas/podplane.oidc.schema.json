@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://podplane.dev/schemas/podplane.oidc.schema.json",
+  "title": "Podplane OIDC config",
+  "description": "Configuration for an Easy OIDC server deployment managed by Podplane.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["oidc"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Path or URL to the JSON Schema for editor validation and completion. Podplane writes a local relative path so config editing works offline."
+    },
+    "oidc": { "$ref": "#/$defs/oidc" }
+  },
+  "$defs": {
+    "oidc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "hostname", "connector", "signing_key_secret_arn"],
+      "properties": {
+        "provider": { "$ref": "#/$defs/provider" },
+        "hostname": {
+          "type": "string",
+          "description": "Hostname for the OIDC issuer. Podplane serves the issuer at https://<hostname>."
+        },
+        "domain": { "$ref": "#/$defs/domain" },
+        "connector": { "$ref": "#/$defs/connector" },
+        "signing_key_secret_arn": {
+          "type": "string",
+          "description": "AWS Secrets Manager ARN containing the OIDC signing key."
+        },
+        "default_redirect_uris": {
+          "type": "array",
+          "description": "Default redirect URIs applied to clients that do not specify their own redirect_uris.",
+          "items": { "type": "string" }
+        },
+        "clients": {
+          "type": "object",
+          "description": "OIDC client definitions keyed by client name.",
+          "additionalProperties": { "$ref": "#/$defs/client" }
+        },
+        "groups_overrides": {
+          "type": "object",
+          "description": "Static group mappings keyed by override name. Clients reference these by groups_override.",
+          "additionalProperties": { "$ref": "#/$defs/groupsOverride" }
+        }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "Cloud provider used to deploy Easy OIDC. Podplane currently supports aws.",
+          "enum": ["aws", "google", "gcp"]
+        },
+        "region": {
+          "type": "string",
+          "description": "Provider region. Required for aws."
+        },
+        "account": {
+          "type": "string",
+          "description": "Provider account identifier, such as an AWS account ID."
+        },
+        "profile": {
+          "type": "string",
+          "description": "Local provider credentials profile name."
+        },
+        "project": {
+          "type": "string",
+          "description": "Google Cloud project ID."
+        }
+      }
+    },
+    "domain": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "zone": {
+          "type": "string",
+          "description": "DNS zone for the OIDC hostname."
+        },
+        "provider": { "$ref": "#/$defs/domainProvider" }
+      }
+    },
+    "domainProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "DNS provider used for managed OIDC DNS records. Podplane currently supports aws.",
+          "enum": ["aws"]
+        },
+        "hosted_zone_id": {
+          "type": "string",
+          "description": "Provider-specific hosted zone ID. For AWS, this is the Route 53 hosted zone ID."
+        }
+      }
+    },
+    "connector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "client_secret_arn"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "Upstream OAuth connector used by Easy OIDC.",
+          "enum": ["google", "github"]
+        },
+        "client_secret_arn": {
+          "type": "string",
+          "description": "AWS Secrets Manager ARN containing the upstream OAuth client ID and client secret."
+        }
+      }
+    },
+    "client": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "groups_override": {
+          "type": "string",
+          "description": "Name of a groups_overrides entry to apply to this client."
+        },
+        "redirect_uris": {
+          "type": "array",
+          "description": "Redirect URIs allowed for this client. Overrides default_redirect_uris when set.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "groupsOverride": {
+      "type": "object",
+      "description": "Mapping from user email or subject to static group names.",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    }
+  }
+}

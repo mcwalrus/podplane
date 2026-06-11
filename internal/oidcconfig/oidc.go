@@ -35,7 +35,11 @@ func Load(path string) (*Config, error) {
 
 // Write writes a formatted OIDC configuration file to disk.
 func Write(path string, cfg *Config) error {
-	raw, err := json.MarshalIndent(cfg, "", "  ")
+	out := *cfg
+	if out.Schema == "" {
+		out.Schema = DefaultSchemaRef
+	}
+	raw, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal OIDC config: %w", err)
 	}

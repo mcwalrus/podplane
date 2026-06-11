@@ -29,7 +29,10 @@ func WriteOIDC(dir string, cfg *oidcconfig.Config) error {
 	if err != nil {
 		return err
 	}
-	return WriteFiles(dir, files)
+	if err := WriteFiles(dir, files); err != nil {
+		return err
+	}
+	return oidcconfig.WriteSchema(dir)
 }
 
 // renderAWSOIDC renders the AWS Easy OIDC Terraform files.

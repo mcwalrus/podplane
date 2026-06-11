@@ -63,6 +63,7 @@ We recommend setting up a Git repository for storing all of your cluster and OID
 │   │
 │   ├── auth-production/                          # example Easy OIDC server
 │   │   ├── podplane.oidc.jsonc                   # config file
+│   │   ├── podplane.oidc.schema.json             # generated local editor schema
 │   │   └── podplane.*.tf                         # generated .tf files
 │   │
 │   └── internaltools-production/                 # example cluster

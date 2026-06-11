@@ -11,3 +11,8 @@ import _ "embed"
 //
 //go:embed podplane.cluster.schema.json
 var ClusterSchemaJSON string
+
+// OIDCSchemaJSON is the JSON Schema for podplane.oidc.jsonc files.
+//
+//go:embed podplane.oidc.schema.json
+var OIDCSchemaJSON string

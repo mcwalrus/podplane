@@ -201,10 +201,13 @@ For the operational impact of changing cluster fields after initial deployment, 
 
 This file stores configuration for an [Easy OIDC](https://easy-oidc.dev) server deployment. It is created in the current directory by `podplane oidc create` and is required by `podplane oidc delete`.
 
+New OIDC configs include a relative `$schema` reference to `./podplane.oidc.schema.json`. Podplane writes that schema file next to the config so editors such as VS Code can provide offline validation, completion, and hover documentation in shared infrastructure repositories. The source schema is checked into the Podplane repository at `schemas/podplane.oidc.schema.json`.
+
 ### Example
 
 ```jsonc
 {
+  "$schema": "./podplane.oidc.schema.json",
   "oidc": {
     "provider": {
       "kind": "aws",
