@@ -556,6 +556,7 @@ func upsertTaggedImageIndex(repoDir, tag string, manifest ociDescriptor) error {
 	if err != nil {
 		return err
 	}
+	upsertIndexDescriptor(&repoIndex, manifest)
 	upsertIndexDescriptor(&repoIndex, ociDescriptor{
 		MediaType:   "application/vnd.oci.image.index.v1+json",
 		Digest:      indexDigest,

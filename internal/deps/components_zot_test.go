@@ -228,6 +228,26 @@ func TestTaggedImageIndexPreservesMultiplePlatforms(t *testing.T) {
 	if len(index.Manifests) != 2 {
 		t.Fatalf("tagged index manifests = %d, want 2", len(index.Manifests))
 	}
+	repoIndex, err := readRepoIndex(repoDir)
+	if err != nil {
+		t.Fatalf("read repo index: %v", err)
+	}
+	var taggedIndexCount, childManifestCount int
+	for _, entry := range repoIndex.Manifests {
+		if entry.Annotations["org.opencontainers.image.ref.name"] == "v1" {
+			taggedIndexCount++
+			continue
+		}
+		if entry.Digest == amd64.Digest || entry.Digest == arm64.Digest {
+			childManifestCount++
+		}
+	}
+	if taggedIndexCount != 1 {
+		t.Fatalf("repo index tagged descriptors = %d, want 1", taggedIndexCount)
+	}
+	if childManifestCount != 2 {
+		t.Fatalf("repo index child manifest descriptors = %d, want 2", childManifestCount)
+	}
 }
 
 func TestTaggedImageDescriptorPreservesOriginalDigest(t *testing.T) {
