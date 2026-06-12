@@ -40,9 +40,7 @@ func buildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig) (map[string
 	issuerName := localIssuerName
 	platformCerts := map[string]any{
 		"platform": map[string]any{
-			"certs": map[string]any{
-				"domains": certDomains(cfg.Cluster.Domains),
-			},
+			"certs": map[string]any{},
 		},
 	}
 	if cfg.Cluster.ACME != nil {
@@ -122,16 +120,6 @@ func ensureChildMap(parent map[string]any, key string) map[string]any {
 	child := map[string]any{}
 	parent[key] = child
 	return child
-}
-
-// certDomains converts configured cluster domains into platform-certs domain
-// values.
-func certDomains(domains []clusterconfig.Domain) []map[string]any {
-	items := make([]map[string]any, 0, len(domains))
-	for _, domain := range domains {
-		items = append(items, map[string]any{"zone": domain.Zone})
-	}
-	return items
 }
 
 // ingressDomains converts configured cluster domains into Traefik ingress
