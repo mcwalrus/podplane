@@ -17,7 +17,12 @@
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
-echo "Podplane cloud-init user-data script has started."
+log() {
+  printf '[userdata] %s\tts=%s\n' "$*" "$EPOCHREALTIME"
+}
+
+log "Podplane cloud-init user-data script has started."
+
 # ----------------------------------------------------------------------------
 
 # --- 1. Configure hostname --------------------------------------------------
@@ -30,7 +35,7 @@ hostnamectl set-hostname {{.Instance.ID}}
 
 {{if eq .Provider.Kind "aws"}}
 %{ if var.enable_ssm ~}
-echo "Ensuring AWS SSM Agent is installed and running..."
+log "Ensuring AWS SSM Agent is installed and running..."
 if command -v snap >/dev/null 2>&1 && snap list amazon-ssm-agent >/dev/null 2>&1; then
   snap start amazon-ssm-agent
 elif dpkg -s amazon-ssm-agent >/dev/null 2>&1; then
@@ -48,14 +53,14 @@ fi
 # --- 3. Check connectivity to Nstance Server --------------------------------
 
 REGISTRATION_ADDR="{{.Server.RegistrationAddr}}"
-echo "Checking connectivity to nstance-server at $REGISTRATION_ADDR..."
+log "Checking connectivity to nstance-server at $REGISTRATION_ADDR..."
 attempt=0
 while true
 do
   attempt=$((attempt + 1))
   if timeout 5 bash -c "echo > /dev/tcp/${REGISTRATION_ADDR%:*}/${REGISTRATION_ADDR##*:}" 2>/dev/null
   then
-    echo "Connection successful!"
+    log "Connection successful!"
     break
   fi
   retry_in=15
@@ -63,7 +68,7 @@ do
   then
     retry_in=3
   fi
-  echo "Failed to connect to nstance-server at $REGISTRATION_ADDR (attempt $attempt), retrying in $retry_in seconds..."
+  log "Failed to connect to nstance-server at $REGISTRATION_ADDR (attempt $attempt), retrying in $retry_in seconds..."
   sleep $retry_in
 done
 
@@ -72,14 +77,14 @@ done
 ARTIFACTS_DIR="/opt/podplane/artifacts"
 mkdir -p "$ARTIFACTS_DIR"
 
-echo "Downloading {{len (.Manifest.InstallItems .ManifestFilter)}} dependencies..."
+log "Downloading {{len (.Manifest.InstallItems .ManifestFilter)}} dependencies..."
 curl -sfL --parallel --parallel-max 10 --parallel-immediate \
 {{- range (.Manifest.InstallItems .ManifestFilter)}}
   -o "${ARTIFACTS_DIR}/{{.LocalFilename}}" "{{.ResolveURL $.DepsMirrorURL}}" \
 {{- end}}
   >/dev/null
 
-echo "Verifying checksums..."
+log "Verifying checksums..."
 while read -r digest filename; do
   case "$digest" in
     sha256:*) echo "${digest#sha256:}  ${filename}" | sha256sum -c --quiet ;;
@@ -94,7 +99,7 @@ CHECKSUMS
 
 # --- 5. Extract vmconfig tarball --------------------------------------------
 {{if .Manifest.HasVMConfigDep .ManifestFilter}}
-echo "Extracting vmconfig.tar.gz..."
+log "Extracting vmconfig.tar.gz..."
 tar -xzf "${ARTIFACTS_DIR}/vmconfig.tar.gz" -C /
 {{else}}
 # skipped
@@ -102,7 +107,7 @@ tar -xzf "${ARTIFACTS_DIR}/vmconfig.tar.gz" -C /
 
 # --- 6. Write user-data environment file ------------------------------------
 
-echo "Writing user-data.env file..."
+log "Writing user-data.env file..."
 mkdir -p /opt/podplane/etc
 cat > /opt/podplane/etc/user-data.env <<'USERDATA_ENV'
 SSH_AUTHORIZED_KEY='{{.Vars.SSH_AUTHORIZED_KEY}}'
@@ -164,7 +169,7 @@ chmod 0600 /opt/podplane/etc/user-data.env
 # --- 7. Write sensitive nstance bootstrap files -----------------------------
 
 {{- if .Nonce}}
-echo "Writing nstance registration nonce file..."
+log "Writing nstance registration nonce file..."
 mkdir -p /opt/nstance-agent/identity
 cat > /opt/nstance-agent/identity/nonce.jwt <<'NSTANCE_NONCE_JWT'
 {{.Nonce}}
@@ -182,30 +187,30 @@ chmod 0600 /opt/nstance-agent/identity/nonce.jwt /opt/nstance-agent/identity/ca.
 {{if not (.Manifest.HasVMConfigDep .ManifestFilter)}}
 {{if eq .Provider.Kind "local"}}
 if ! command -v rsync >/dev/null 2>&1; then
-  echo "Installing rsync for local vmconfig development sync..."
+  log "Installing rsync for local vmconfig development sync..."
   apt-get update
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends rsync
 fi
 if [ ! -x /opt/podplane/bin/install.sh ]; then
-  echo "No vmconfig package was included in the vmconfig manifest."
-  echo "Sync local vmconfig into the VM, then re-run this user-data script."
+  log "No vmconfig package was included in the vmconfig manifest."
+  log "Sync local vmconfig into the VM, then re-run this user-data script."
   exit 0
 fi
 {{end}}
 {{end}}
 
-echo "Running install.sh..."
+log "Running install.sh..."
 chmod +x /opt/podplane/bin/install.sh
 /opt/podplane/bin/install.sh
 
 # --- 9. Run configure.sh ----------------------------------------------------
-echo "Running configure.sh..."
+log "Running configure.sh..."
 chmod +x /opt/podplane/bin/configure.sh
 /opt/podplane/bin/configure.sh
 {{if eq .Provider.Kind "local"}}
 # --- Local provider VM preparation ------------------------------------------
 
-echo "Applying local provider VM preparation..."
+log "Applying local provider VM preparation..."
 set +u
 # shellcheck source=/dev/null
 source /opt/podplane/etc/user-data.env
@@ -260,9 +265,9 @@ fi
 systemctl disable unattended-upgrades || true
 {{end}}
 # --- 10. Restart services ---------------------------------------------------
-echo "Running restart.sh..."
+log "Running restart.sh..."
 chmod +x /opt/podplane/bin/restart.sh
 /opt/podplane/bin/restart.sh
 
 # ----------------------------------------------------------------------------
-echo "Podplane cloud-init user-data script has completed successfully."
+log "Podplane cloud-init user-data script has completed successfully."
