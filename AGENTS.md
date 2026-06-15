@@ -37,6 +37,21 @@ Keep command behavior aligned with the command context model documented in
 - When changing config structs, validation rules, defaults, or config docs, update the corresponding schema file and tests in `internal/clusterconfig` or `internal/oidcconfig`.
 - Generated schema copies (`podplane.*.schema.json`) are CLI-managed support files, similar to generated `podplane.*.tf` files; the source of truth is the checked-in file under `schemas/`.
 
+## TUI / Terminal UI Guidance
+
+When building or changing Podplane CLI TUI output:
+
+- Treat `80x24` as the minimum supported terminal size.
+- Design primary flows to remain usable at `80` columns.
+- Avoid layouts that require wide terminals for essential information.
+- Prefer vertical stacking over multi-column layouts unless the terminal is wide enough.
+- Truncate or wrap secondary text before breaking command usability.
+- Important actions, prompts, errors, and status messages must remain visible at `80x24`.
+- If richer layouts are useful, progressively enhance for wider terminals rather than depending on them.
+- Do not assume full-screen TUI mode unless the command explicitly enters an interactive UI.
+- Non-interactive CLI output should remain readable in narrow terminals and logs.
+- When using TUI libraries such as Bubble Tea or Lip Gloss, measure terminal size at runtime and adapt layout rather than hard-coding `80x24` as a design constant.
+
 ## Code Style
 
 - **File headers**: include the Podplane copyright and SPDX header on Go files.
