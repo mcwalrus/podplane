@@ -81,7 +81,7 @@ func RunHealthTaskProgress(ctx context.Context, checks []health.Check, progress 
 				progress.Done(check.Key, check.Name, status.Message)
 				continue
 			}
-			if !status.Ready && status.Message != "" {
+			if !status.Ready && status.Message != "" && status.Status != string(health.StatusPending) {
 				progress(TaskProgressEvent{Type: TaskProgressInfo, Key: check.Key, Name: check.Name, Message: status.Message})
 			}
 		}
@@ -145,6 +145,10 @@ func (p *healthProgressPoller) poll() (map[string]StatusProgressStatus, error) {
 			p.startedAt[check.Key] = now
 		}
 		if check.Timeout > 0 && now.Sub(p.startedAt[check.Key]) > check.Timeout {
+			message := p.statuses[check.Key].Message
+			if message != "" {
+				return nil, fmt.Errorf("%s timed out after %s: %s", check.Name, formatDuration(check.Timeout), message)
+			}
 			return nil, fmt.Errorf("%s timed out after %s", check.Name, formatDuration(check.Timeout))
 		}
 		if check.Run == nil {

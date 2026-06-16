@@ -5,6 +5,8 @@
 package tui
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,5 +26,73 @@ func TestHealthCriticalPathExpected(t *testing.T) {
 
 	if got, want := healthCriticalPathExpected(checks), 70*time.Second; got != want {
 		t.Fatalf("healthCriticalPathExpected() = %s, want %s", got, want)
+	}
+}
+
+// TestRunHealthTaskProgressSuppressesPendingMessages keeps expected transient
+// startup failures from dominating the local-start dashboard while preserving
+// the success message when the check becomes ready.
+func TestRunHealthTaskProgressSuppressesPendingMessages(t *testing.T) {
+	attempts := 0
+	checks := []health.Check{
+		{
+			Key:      "webhook",
+			Name:     "cert-manager admission",
+			Required: true,
+			Run: func(context.Context) health.Result {
+				attempts++
+				if attempts == 1 {
+					return health.Result{Exists: true, Status: health.StatusPending, Message: "Error from server: failed calling webhook"}
+				}
+				return health.Result{Exists: true, Ready: true, Status: health.StatusReady, Message: "ready"}
+			},
+		},
+	}
+	events := []TaskProgressEvent{}
+	progress := TaskProgress(func(event TaskProgressEvent) {
+		events = append(events, event)
+	})
+
+	if _, err := RunHealthTaskProgress(context.Background(), checks, progress); err != nil {
+		t.Fatalf("RunHealthTaskProgress returned error: %v", err)
+	}
+
+	for _, event := range events {
+		if event.Type == TaskProgressInfo && strings.Contains(event.Message, "failed calling webhook") {
+			t.Fatalf("RunHealthTaskProgress emitted pending failure detail: %#v", event)
+		}
+	}
+	last := events[len(events)-1]
+	if last.Type != TaskProgressDone || last.Message != "ready" {
+		t.Fatalf("last event = %#v, want done ready", last)
+	}
+}
+
+// TestHealthProgressPollerTimeoutIncludesLastPendingMessage ensures suppressed
+// pending details remain available when a health check actually times out.
+func TestHealthProgressPollerTimeoutIncludesLastPendingMessage(t *testing.T) {
+	checks := []health.Check{
+		{
+			Key:      "ingress",
+			Name:     "local ingress proxy",
+			Required: true,
+			Timeout:  time.Nanosecond,
+			Run: func(context.Context) health.Result {
+				return health.Result{Exists: true, Status: health.StatusPending, Message: "waiting for Traefik: HTTP 502"}
+			},
+		},
+	}
+	poller := newHealthProgressPoller(context.Background(), checks, false)
+	if _, err := poller.poll(); err != nil {
+		t.Fatalf("first poll returned error: %v", err)
+	}
+	time.Sleep(time.Millisecond)
+
+	_, err := poller.poll()
+	if err == nil {
+		t.Fatal("second poll succeeded, want timeout")
+	}
+	if !strings.Contains(err.Error(), "waiting for Traefik: HTTP 502") {
+		t.Fatalf("timeout error = %q, want last pending message", err)
 	}
 }
