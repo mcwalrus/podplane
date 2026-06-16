@@ -53,6 +53,9 @@ Template-specific values can be set with `--set` e.g.:
 
 | Value | Default | Description |
 |---|---|---|
+| `images.app` | `ghcr.io/podplane/hello:latest` | App container image; `--image` maps here |
+| `images.caddy` | `docker.io/library/caddy:2` | Caddy sidecar image |
+| `app.env` | `{}` | Non-secret environment variables for the app container; `--env` maps here |
 | `app.port` | `80` | Plain HTTP port exposed by the app container |
 | `route.hostname` | `""` | External hostname for routing; `--hostname` maps here |
 | `route.path` | `/` | URL path prefix for routing; `--path` maps here |
@@ -114,6 +117,10 @@ podplane deploy worker \
 Every template chart must include `values.schema.json`. The schema is the contract for supported template values and is used by Podplane to validate common ergonomic flags before invoking Helm.
 
 `podplane deploy` keeps a small stable set of universal flags: `--name`, `--image`, `-e` / `--env`, `--namespace`, Kubernetes context flags, and `--auto-approve`. These apply to deploy itself rather than to any one template.
+
+Template charts must put container image values under `images`. The `--image` flag maps to the app workload image, conventionally `images.app`; template-owned support images use sibling keys such as `images.caddy`. This gives Podplane one predictable place to inspect, prefetch, mirror, or override image references.
+
+Template manifests include a flat `templates.images` list, modelled after the components image manifest. Each row records a resolved image for one platform (`image`, `digest`, `size`, `platform`, and optional `index`) plus a `templates` map from template name to the image key under `images`. For example, `"templates": {"web": "caddy"}` means the image is referenced by the web template at `images.caddy`.
 
 Some flags are common ergonomic shortcuts for template values. Today `--hostname` maps to `route.hostname`, and `--path` maps to `route.path`. Because not every template supports routing, the deploy command checks the template's `values.schema.json` and fails loudly if one of these flags is used with an unsupported template.
 

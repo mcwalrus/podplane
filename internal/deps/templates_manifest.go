@@ -19,6 +19,7 @@ type TemplatesManifest struct {
 type Templates struct {
 	Version string          `json:"version"`
 	Charts  []TemplateChart `json:"charts"`
+	Images  []TemplateImage `json:"images"`
 }
 
 type TemplateChart struct {
@@ -35,6 +36,15 @@ type TemplateChart struct {
 
 type TemplateDependencies struct {
 	Components []string `json:"components,omitempty"`
+}
+
+type TemplateImage struct {
+	Image     string            `json:"image"`
+	Digest    string            `json:"digest"`
+	Size      int64             `json:"size"`
+	Platform  string            `json:"platform,omitempty"`
+	Index     string            `json:"index,omitempty"`
+	Templates map[string]string `json:"templates,omitempty"`
 }
 
 // ResetCached clears local cache-state markers from template charts.

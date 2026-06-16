@@ -12,7 +12,7 @@ import (
 
 func TestWithValuesFileIncludesRouteWhenSet(t *testing.T) {
 	t.Parallel()
-	err := withValuesFile("example.com/app:latest", nil, "hello.example.com", "/api", 8443, func(valuesPath string) error {
+	err := withValuesFile("example.com/app:latest", map[string]string{"FOO": "bar"}, "hello.example.com", "/api", 8443, func(valuesPath string) error {
 		raw, err := os.ReadFile(valuesPath)
 		if err != nil {
 			return err
@@ -20,6 +20,24 @@ func TestWithValuesFileIncludesRouteWhenSet(t *testing.T) {
 		var values map[string]any
 		if err := json.Unmarshal(raw, &values); err != nil {
 			return err
+		}
+		images, ok := values["images"].(map[string]any)
+		if !ok {
+			t.Fatalf("images = %T, want object", values["images"])
+		}
+		if got := images["app"]; got != "example.com/app:latest" {
+			t.Fatalf("images.app = %v, want example.com/app:latest", got)
+		}
+		app, ok := values["app"].(map[string]any)
+		if !ok {
+			t.Fatalf("app = %T, want object", values["app"])
+		}
+		env, ok := app["env"].(map[string]any)
+		if !ok {
+			t.Fatalf("app.env = %T, want object", app["env"])
+		}
+		if got := env["FOO"]; got != "bar" {
+			t.Fatalf("app.env.FOO = %v, want bar", got)
 		}
 		route, ok := values["route"].(map[string]any)
 		if !ok {
