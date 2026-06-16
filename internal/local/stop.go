@@ -5,8 +5,10 @@
 package local
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/fatih/color"
 
@@ -15,6 +17,19 @@ import (
 
 // Stop stops the local cluster VM and supporting processes
 func (m *Local) Stop() error {
+	// Best-effort: let containerd stop cleanly before QEMU is terminated, so
+	// image pulls/unpacks are less likely to be interrupted mid-write.
+	if state, err := readState(m.runtimeDir, m.clusterID); err == nil && state.Ports.SSH != 0 {
+		if privateKeyPath, err := SSHPrivateKeyPath(m.dataDir); err == nil {
+			fmt.Println("Stopping containerd...")
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			if _, err := m.vm.Shell(ctx, "sudo systemctl stop containerd", state.Ports.SSH, privateKeyPath, vm.ShellOptions{Timeout: 10 * time.Second}); err == nil {
+				color.Green("✓ containerd stopped successfully")
+			}
+			cancel()
+		}
+	}
+
 	// Stop the VM
 	fmt.Println("Stopping VM...")
 	if err := m.vm.Stop(); err != nil {
