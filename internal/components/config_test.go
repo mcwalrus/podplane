@@ -6,7 +6,9 @@ package components
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -92,5 +94,25 @@ func TestParseValuesMissingComponents(t *testing.T) {
 	raw, _ := json.Marshal(map[string]any{"platform": map[string]any{}})
 	if _, err := parseValues(raw); err == nil {
 		t.Fatal("expected error for missing platform.components")
+	}
+}
+
+func TestHelmErrorReleaseNotFoundMessage(t *testing.T) {
+	err := &HelmError{
+		Stage:  "get values",
+		Err:    errors.New("exit status 1"),
+		Stderr: "Error: release: not found\n",
+	}
+	if !err.ReleaseNotFound() {
+		t.Fatal("ReleaseNotFound() = false, want true")
+	}
+	message := err.Error()
+	for _, want := range []string{"platform-components is not installed", "bare Podplane cluster", "minimal or recommended"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("HelmError message %q does not contain %q", message, want)
+		}
+	}
+	if strings.Contains(message, "release: not found") {
+		t.Fatalf("HelmError message should hide raw helm release-not-found output, got %q", message)
 	}
 }

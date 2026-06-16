@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/podplane/podplane/internal/execwrap"
 )
@@ -158,10 +159,22 @@ type HelmError struct {
 
 // Error implements the error interface.
 func (e *HelmError) Error() string {
+	if e.ReleaseNotFound() {
+		return "platform-components is not installed in this cluster; this looks like a bare Podplane cluster. App deploys and component installs require a cluster seeded with the minimal or recommended platform components. Bootstrap platform-components manually or recreate the cluster with minimal/recommended components, then retry."
+	}
 	if e.Stderr == "" {
 		return fmt.Sprintf("helm %s: %v", e.Stage, e.Err)
 	}
 	return fmt.Sprintf("helm %s: %v: %s", e.Stage, e.Err, e.Stderr)
+}
+
+// ReleaseNotFound reports whether helm failed because the platform-components
+// release does not exist in the cluster.
+func (e *HelmError) ReleaseNotFound() bool {
+	if e == nil {
+		return false
+	}
+	return strings.Contains(e.Stderr, "release: not found")
 }
 
 // Unwrap returns the underlying exec error so callers can use errors.Is/As.
