@@ -450,7 +450,7 @@ func (m taskProgressModel) View() string {
 		body.WriteString("In progress\n")
 		inProgress := m.inProgressRows()
 		if len(inProgress) == 0 {
-			body.WriteString(faintStyle.Render("No active tasks yet"))
+			body.WriteString(faintStyle.Render("Preparing the next step…"))
 			body.WriteString("\n")
 		} else {
 			for _, row := range inProgress {
