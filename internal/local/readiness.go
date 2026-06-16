@@ -142,6 +142,9 @@ func (m *Local) WaitForSystemServices(ctx context.Context, opts WaitOptions) err
 	if err != nil {
 		return fmt.Errorf("failed to prepare SSH key for local VM: %w", err)
 	}
+	if err := m.waitForSSH(ctx, sshPort, privateKeyPath, opts.Quiet); err != nil {
+		return err
+	}
 
 	services := "containerd nstance-agent netsy"
 	deadline := time.Now().Add(localSystemServicesTimeout)
