@@ -50,6 +50,52 @@ func RunHealthProgress(opts HealthProgressOptions, checks []health.Check) error 
 	return nil
 }
 
+// RunHealthTaskProgress reports health check progress through TaskProgress so
+// callers can include checks in a larger upfront progress plan.
+func RunHealthTaskProgress(ctx context.Context, checks []health.Check, progress TaskProgress) (time.Duration, error) {
+	if len(checks) == 0 {
+		return 0, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	poller := newHealthProgressPoller(ctx, checks, false)
+	started := map[string]bool{}
+	done := map[string]bool{}
+	for {
+		statuses, err := poller.poll()
+		if err != nil {
+			return poller.elapsed(), err
+		}
+		for _, check := range checks {
+			status := statuses[check.Key]
+			if status.Status == string(health.Status("Blocked")) {
+				continue
+			}
+			if !started[check.Key] {
+				started[check.Key] = true
+				progress.Started(check.Key, check.Name, "")
+			}
+			if status.Ready && !done[check.Key] {
+				done[check.Key] = true
+				progress.Done(check.Key, check.Name, status.Message)
+				continue
+			}
+			if !status.Ready && status.Message != "" {
+				progress(TaskProgressEvent{Type: TaskProgressInfo, Key: check.Key, Name: check.Name, Message: status.Message})
+			}
+		}
+		if statusProgressRequiredReady(statuses, requiredHealthStatusProgressItems(checks)) {
+			return poller.elapsed(), nil
+		}
+		select {
+		case <-ctx.Done():
+			return poller.elapsed(), ctx.Err()
+		case <-time.After(statusProgressPollInterval):
+		}
+	}
+}
+
 type healthProgressPoller struct {
 	ctx       context.Context
 	checks    []health.Check

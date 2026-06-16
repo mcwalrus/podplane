@@ -12,11 +12,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"golang.org/x/term"
 )
 
-const taskProgressBarWidth = 20
-const taskProgressOverallBarWidth = 28
+const (
+	taskProgressStackWidth  = 110
+	taskProgressFrameHeight = MinTUIHeight - 3
+)
 
 // TaskProgressEventType describes a lifecycle transition for one task progress
 // row. Callers normally do not need to construct these values directly; use the
@@ -76,6 +77,21 @@ type TaskProgressItem struct {
 	// Timeout is the maximum wait duration for this task when the caller has one.
 	// It is displayed as a hint after Expected is exceeded.
 	Timeout time.Duration
+
+	// Group optionally places this item under a logical group in wide progress
+	// views. It does not affect task execution or expected-time calculations.
+	Group string
+
+	// Ready marks this item as a user-usable capability rather than internal
+	// setup work. Ready items appear in the Ready section when complete.
+	Ready bool
+}
+
+// TaskProgressOptions configures task progress rendering.
+type TaskProgressOptions struct {
+	Title     string
+	Subtitle  string
+	DoneTitle string
 }
 
 // TaskProgressEvent reports progress for one task progress item. The progress
@@ -152,28 +168,45 @@ func (p TaskProgress) Failed(key, name string, err error) {
 // includes an overall expected-time bar plus per-item rows; both are expectation
 // indicators, not exact work-completion percentages. It falls back to
 // line-oriented output when stdout is not a terminal.
-func RunTaskProgress(title string, items []TaskProgressItem, run func(TaskProgress) error) error {
+func RunTaskProgress(opts TaskProgressOptions, items []TaskProgressItem, run func(TaskProgress) error) error {
 	items = includedTaskProgressItems(items)
-	if !term.IsTerminal(int(os.Stdout.Fd())) {
+	if !CanUseTUI(MinTUIWidth, MinTUIHeight).OK {
 		return runTextTaskProgress(items, run)
+	}
+	if opts.Title == "" {
+		opts.Title = "Podplane"
+	}
+	if opts.Subtitle == "" {
+		opts.Subtitle = opts.Title
+	}
+	if opts.DoneTitle == "" {
+		opts.DoneTitle = opts.Subtitle
 	}
 
 	events := make(chan TaskProgressEvent, 64)
+	done := make(chan taskProgressDoneMsg, 1)
 	m := taskProgressModel{
-		title:  title,
-		run:    run,
-		events: events,
-		items:  items,
-		rows:   map[string]taskProgressRow{},
+		title:     opts.Title,
+		subtitle:  opts.Subtitle,
+		doneTitle: opts.DoneTitle,
+		run:       run,
+		events:    events,
+		done:      done,
+		items:     items,
+		rows:      map[string]taskProgressRow{},
+		tui:       true,
 	}
 	for _, item := range items {
 		m.rows[item.Key] = taskProgressRow{item: item, status: "pending"}
 	}
-	finalModel, err := tea.NewProgram(m).Run()
+	finalModel, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	if err != nil {
 		return fmt.Errorf("error running task progress: %w", err)
 	}
 	if m, ok := finalModel.(taskProgressModel); ok {
+		if !m.tui {
+			return drainTextTaskProgress(items, events, done)
+		}
 		return m.err
 	}
 	return nil
@@ -205,14 +238,20 @@ type taskProgressRow struct {
 
 type taskProgressModel struct {
 	title        string
+	subtitle     string
+	doneTitle    string
 	run          func(TaskProgress) error
 	events       chan TaskProgressEvent
+	done         chan taskProgressDoneMsg
 	items        []TaskProgressItem
 	rows         map[string]taskProgressRow
 	err          error
 	doneReceived bool
 	closed       bool
 	width        int
+	height       int
+	tui          bool
+	animation    int
 }
 
 type taskProgressEventMsg TaskProgressEvent
@@ -242,6 +281,9 @@ func (m taskProgressModel) runCommand() tea.Cmd {
 		})
 		err := m.run(progress)
 		close(m.events)
+		if m.done != nil {
+			m.done <- taskProgressDoneMsg{err: err}
+		}
 		return taskProgressDoneMsg{err: err}
 	}
 }
@@ -269,32 +311,47 @@ func taskProgressTick() tea.Cmd {
 func (m taskProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.doneReceived && m.closed {
+			return m, tea.Quit
+		}
 		if msg.String() == "ctrl+c" {
 			m.err = fmt.Errorf("task progress cancelled")
 			return m, tea.Quit
 		}
+		if msg.String() == "p" && m.tooSmall() {
+			m.tui = false
+			return m, tea.Quit
+		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		m.height = msg.Height
 		return m, nil
 	case taskProgressEventMsg:
 		m.applyEvent(TaskProgressEvent(msg))
 		return m, m.waitForEvent()
 	case taskProgressTickMsg:
 		if m.doneReceived && m.closed {
-			return m, tea.Quit
+			m.animation++
+			return m, taskProgressTick()
 		}
 		return m, taskProgressTick()
 	case taskProgressDoneMsg:
 		m.doneReceived = true
 		m.err = msg.err
-		if m.closed {
+		if msg.err != nil {
 			return m, tea.Quit
+		}
+		if m.closed {
+			return m, nil
 		}
 		return m, nil
 	case taskProgressClosedMsg:
 		m.closed = true
 		if m.doneReceived {
-			return m, tea.Quit
+			if m.err != nil {
+				return m, tea.Quit
+			}
+			return m, nil
 		}
 		return m, nil
 	}
@@ -355,40 +412,301 @@ func (m *taskProgressModel) applyEvent(event TaskProgressEvent) {
 
 // View renders the task progress dashboard.
 func (m taskProgressModel) View() string {
+	if m.tooSmall() {
+		return tooSmallTaskProgressView()
+	}
+
 	var b strings.Builder
-	titleStyle := lipgloss.NewStyle().Background(ColorPrimary).Foreground(ColorWhite).Padding(0, 1)
 	faintStyle := lipgloss.NewStyle().Faint(true)
 	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5f87"))
+	cardStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#5865f2")).Padding(0, 1)
 
-	b.WriteString("\n")
-	b.WriteString(titleStyle.Render(m.title))
-	b.WriteString("\n\n")
-	current, total, complete, count, overExpected := m.overallProgress()
-	if total > 0 {
-		label := fmt.Sprintf("expected ~%s", formatDuration(total))
-		if complete == count {
-			label = fmt.Sprintf("took %s", formatDuration(m.elapsed()))
+	current, total, _, _, overExpected := m.overallProgress()
+	var body strings.Builder
+	if m.doneReceived && m.closed {
+		body.WriteString(m.doneTitle)
+		body.WriteString("\n\n")
+		body.WriteString(renderRocketLaunch(m.animation))
+		body.WriteString("\n\n")
+		body.WriteString("Ready\n")
+		body.WriteString("\n")
+		for _, row := range m.readyRows() {
+			body.WriteString(fmt.Sprintf("• %s", row.item.Name))
+			body.WriteString("\n")
 		}
-		if overExpected {
-			label = "taking longer than usual"
+	} else {
+		body.WriteString(m.subtitle)
+		body.WriteString("\n\n")
+		if total > 0 {
+			label := m.timeSummary(current, total, overExpected)
+			barWidth := 32
+			if m.width > 0 && m.width < 90 {
+				barWidth = 28
+			}
+			body.WriteString(fmt.Sprintf("%s  %d%%\n", renderBar(int64(current), int64(total), barWidth), progressPercent(current, total)))
+			body.WriteString(faintStyle.Render(label))
+			body.WriteString("\n\n")
 		}
-		b.WriteString(m.truncateLine(fmt.Sprintf("Overall  %s  %s · %d/%d complete", renderBar(int64(current), int64(total), taskProgressOverallBarWidth), label, complete, count)))
-		b.WriteString("\n\n")
+		body.WriteString("In progress\n")
+		inProgress := m.inProgressRows()
+		if len(inProgress) == 0 {
+			body.WriteString(faintStyle.Render("No active tasks yet"))
+			body.WriteString("\n")
+		} else {
+			for _, row := range inProgress {
+				line := renderCompactProgressRow(row)
+				if row.status == "failed" {
+					line = errorStyle.Render(line)
+				}
+				body.WriteString(line)
+				body.WriteString("\n")
+			}
+		}
+		body.WriteString("\n")
+		body.WriteString("Ready\n")
+		ready := m.readyRows()
+		if len(ready) == 0 {
+			body.WriteString(faintStyle.Render("Nothing is ready yet"))
+			body.WriteString("\n")
+		} else {
+			for _, row := range ready {
+				body.WriteString(fmt.Sprintf("✓ %s", row.item.Name))
+				body.WriteString("\n")
+			}
+		}
 	}
-	visible := m.visibleRows()
-	for _, row := range visible {
-		line := m.truncateLine(renderTaskProgressRow(row))
-		if row.status == "failed" {
-			line = errorStyle.Render(line)
+
+	content := body.String()
+	if m.width >= taskProgressStackWidth {
+		content = lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(58).Render(body.String()), m.renderStack())
+	}
+	if m.doneReceived && m.closed {
+		content += "\n" + faintStyle.Render("Press any key to continue")
+	}
+
+	card := cardStyle.Width(m.cardWidth()).Height(taskProgressFrameHeight).Render(content)
+	if m.width > 0 && m.height > 0 {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, card)
+	}
+	b.WriteString("\n")
+	b.WriteString(card)
+	b.WriteString("\n")
+	return b.String()
+}
+
+// tooSmall reports whether the current terminal size is below the supported
+// minimum for the full task progress view.
+func (m taskProgressModel) tooSmall() bool {
+	return (m.width > 0 && m.width < MinTUIWidth) || (m.height > 0 && m.height < MinTUIHeight)
+}
+
+// tooSmallTaskProgressView renders the compact undersized-terminal message.
+func tooSmallTaskProgressView() string {
+	return fmt.Sprintf("Podplane local start is still running.\n\nThe installer view needs at least %dx%d.\nResize your terminal to continue.\n\nPress p to disable the TUI and continue with plain output.\n", MinTUIWidth, MinTUIHeight)
+}
+
+// renderRocketLaunch renders the completed-state launch animation shown while
+// the installer waits for the user to leave the full-screen view.
+func renderRocketLaunch(frame int) string {
+	frames := []string{
+		"·   ✦   ·   ✧ \n  ·   ·   ✦  ·\n✧   ·   ·   · \n  ·   ✦   ·   \n 🚀  ·   ✦  · ",
+		"·   ✧   ·   ✦ \n  ·   ·   ✦  ·\n✦   ·   ·   · \n    🚀✧   ·   \n ·   ·   ✦  · ",
+		"·   ✦   ·   ✦ \n  ·   ·   ✧  ·\n✦     🚀·   · \n  ·   ✦   ·   \n ·   ·   ✧  · ",
+		"·   ✦   ·   ✧ \n  ·     🚀✦  ·\n✧   ·   ·   · \n  ·   ✦   ·   \n ·   ·   ✦  · ",
+		"·   ✧     🚀✦ \n  ·   ·   ✦  ·\n✦   ·   ·   · \n  ·   ✧   ·   \n 🚀  ·   ✦  · ",
+	}
+	return frames[frame%len(frames)]
+}
+
+// cardWidth returns the outer card width appropriate for the current terminal.
+func (m taskProgressModel) cardWidth() int {
+	if m.width < taskProgressStackWidth {
+		return MinTUIWidth
+	}
+	width := m.width - 8
+	if m.width >= taskProgressStackWidth {
+		if width > 112 {
+			return 112
 		}
-		b.WriteString(line)
-		b.WriteString("\n")
-		if extra := taskProgressExtra(row); extra != "" {
-			b.WriteString(faintStyle.Render(m.truncateLine(extra)))
+		return width
+	}
+	return MinTUIWidth
+}
+
+// timeSummary renders the elapsed/remaining/overtime summary for the main
+// progress card.
+func (m taskProgressModel) timeSummary(current, total time.Duration, overExpected bool) string {
+	elapsed := m.wallElapsed()
+	if m.allDone() {
+		return fmt.Sprintf("took %s", formatDuration(elapsed))
+	}
+	if overExpected && elapsed > total {
+		return fmt.Sprintf("elapsed %s · +%s", formatDuration(elapsed), formatDuration(elapsed-total))
+	}
+	remaining := total - current
+	if remaining < 0 {
+		remaining = 0
+	}
+	return fmt.Sprintf("elapsed %s · about %s left", formatDuration(elapsed), formatDuration(remaining))
+}
+
+// wallElapsed returns elapsed wall-clock time since the first visible task
+// started.
+func (m taskProgressModel) wallElapsed() time.Duration {
+	var start time.Time
+	for _, row := range m.visibleRows() {
+		if !row.startedAt.IsZero() && (start.IsZero() || row.startedAt.Before(start)) {
+			start = row.startedAt
+		}
+	}
+	if start.IsZero() {
+		return 0
+	}
+	return time.Since(start)
+}
+
+// allDone reports whether all visible non-ready work items are complete.
+func (m taskProgressModel) allDone() bool {
+	for _, row := range m.visibleRows() {
+		if row.item.Ready || row.item.Expected <= 0 {
+			continue
+		}
+		if row.status != "done" && row.status != "skipped" {
+			return false
+		}
+	}
+	return len(m.visibleRows()) > 0
+}
+
+// inProgressRows returns currently active work items for the simple view.
+func (m taskProgressModel) inProgressRows() []taskProgressRow {
+	rows := []taskProgressRow{}
+	for _, row := range m.visibleRows() {
+		if row.item.Ready {
+			continue
+		}
+		if row.status == "running" || row.status == "failed" {
+			rows = append(rows, row)
+		}
+	}
+	return rows
+}
+
+// readyRows returns user-facing readiness items that have completed.
+func (m taskProgressModel) readyRows() []taskProgressRow {
+	rows := []taskProgressRow{}
+	for _, row := range m.visibleRows() {
+		if !row.item.Ready {
+			continue
+		}
+		if row.status == "done" || row.status == "skipped" {
+			rows = append(rows, row)
+		}
+	}
+	return rows
+}
+
+// renderStack renders the optional wide-screen stack/timing column.
+func (m taskProgressModel) renderStack() string {
+	var b strings.Builder
+	faintStyle := lipgloss.NewStyle().Faint(true)
+	b.WriteString("Stack")
+	b.WriteString(faintStyle.Render("                         time"))
+	b.WriteString("\n")
+	lastGroup := ""
+	for _, row := range m.visibleRows() {
+		if row.item.Ready || row.omitted || row.status == "pending" {
+			continue
+		}
+		group := row.item.Group
+		if group != "" && group != lastGroup {
+			groupRow := row
+			groupRow.item.Name = group
+			groupRow.item.Group = ""
+			b.WriteString(renderStackLine(groupRow, false))
 			b.WriteString("\n")
+			lastGroup = group
 		}
+		b.WriteString(renderStackLine(row, group != ""))
+		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// renderCompactProgressRow renders one active row in the simple view.
+func renderCompactProgressRow(row taskProgressRow) string {
+	marker := taskProgressMarker(row)
+	name := row.item.Name
+	if row.message != "" {
+		name = fmt.Sprintf("%s — %s", name, row.message)
+	}
+	return fmt.Sprintf("%s %s", marker, name)
+}
+
+// renderStackLine renders one row in the wide stack column.
+func renderStackLine(row taskProgressRow, indent bool) string {
+	name := row.item.Name
+	if indent {
+		name = "  " + name
+	}
+	return fmt.Sprintf("%s %-24s %7s", taskProgressMarker(row), name, renderTaskTiming(row))
+}
+
+// taskProgressMarker returns the symbolic status marker for a task row.
+func taskProgressMarker(row taskProgressRow) string {
+	switch row.status {
+	case "done", "skipped":
+		return "✓"
+	case "failed":
+		return "✗"
+	case "running":
+		return "◐"
+	default:
+		return "…"
+	}
+}
+
+// renderTaskTiming renders the subtle status-aware timing value for a task row.
+func renderTaskTiming(row taskProgressRow) string {
+	if row.startedAt.IsZero() {
+		return ""
+	}
+	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3ddc84"))
+	runningStyle := lipgloss.NewStyle().Faint(true)
+	overtimeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5f87"))
+	if row.status == "done" || row.status == "skipped" {
+		elapsed := row.doneAt.Sub(row.startedAt)
+		if elapsed < 0 {
+			elapsed = 0
+		}
+		return successStyle.Render(formatDuration(elapsed))
+	}
+	if row.status == "running" && row.item.Expected > 0 {
+		elapsed := time.Since(row.startedAt)
+		if elapsed > row.item.Expected {
+			return overtimeStyle.Render("+" + formatDuration(elapsed-row.item.Expected))
+		}
+		return runningStyle.Render(fmt.Sprintf("%s/%s", formatDuration(elapsed), formatDuration(row.item.Expected)))
+	}
+	if row.status == "running" {
+		return runningStyle.Render(formatDuration(time.Since(row.startedAt)))
+	}
+	return ""
+}
+
+// progressPercent renders current/total progress as an integer percentage.
+func progressPercent(current, total time.Duration) int {
+	if total <= 0 {
+		return 0
+	}
+	percent := int((current * 100) / total)
+	if percent > 100 {
+		return 100
+	}
+	if percent < 0 {
+		return 0
+	}
+	return percent
 }
 
 // visibleRows returns rows that should be rendered. Rows that have not emitted
@@ -417,26 +735,6 @@ func (m taskProgressModel) visibleRows() []taskProgressRow {
 		}
 	}
 	return rows
-}
-
-// truncateLine prevents long row messages from wrapping and leaving stale
-// fragments behind during Bubble Tea repaint cycles.
-func (m taskProgressModel) truncateLine(line string) string {
-	if m.width <= 0 {
-		return line
-	}
-	width := m.width - 1
-	if width <= 0 {
-		return ""
-	}
-	runes := []rune(line)
-	if len(runes) <= width {
-		return line
-	}
-	if width == 1 {
-		return "…"
-	}
-	return string(runes[:width-1]) + "…"
 }
 
 // overallProgress returns the expected-time progress totals, completion counts,
@@ -474,80 +772,6 @@ func (m taskProgressModel) overallProgress() (time.Duration, time.Duration, int,
 		current = total - time.Nanosecond
 	}
 	return current, total, complete, tracked, runningOverExpected
-}
-
-// elapsed returns the wall-clock duration between the first started task and
-// the last completed task currently visible in the progress UI.
-func (m taskProgressModel) elapsed() time.Duration {
-	var start time.Time
-	var end time.Time
-	for _, row := range m.visibleRows() {
-		if !row.startedAt.IsZero() && (start.IsZero() || row.startedAt.Before(start)) {
-			start = row.startedAt
-		}
-		if !row.doneAt.IsZero() && row.doneAt.After(end) {
-			end = row.doneAt
-		}
-	}
-	if start.IsZero() || end.IsZero() {
-		return 0
-	}
-	return end.Sub(start)
-}
-
-// renderTaskProgressRow renders one task progress row.
-func renderTaskProgressRow(row taskProgressRow) string {
-	marker := "…"
-	state := "waiting"
-	suffix := row.message
-	switch row.status {
-	case "running":
-		marker = "⟳"
-		state = formatDuration(time.Since(row.startedAt))
-		if row.item.Expected > 0 {
-			elapsed := time.Since(row.startedAt)
-			if elapsed <= row.item.Expected {
-				suffix = fmt.Sprintf("expected ~%s  %s", formatDuration(row.item.Expected), renderBar(int64(elapsed), int64(row.item.Expected), taskProgressBarWidth))
-			} else {
-				suffix = "taking longer than usual"
-			}
-		}
-	case "done":
-		marker = "✓"
-		state = "done"
-		if !row.startedAt.IsZero() && !row.doneAt.IsZero() {
-			state = formatDuration(row.doneAt.Sub(row.startedAt))
-		}
-		if suffix == "" {
-			suffix = row.item.Success
-		}
-	case "failed":
-		marker = "✗"
-		state = "failed"
-		if row.err != nil && suffix == "" {
-			suffix = row.err.Error()
-		}
-	case "skipped":
-		marker = "✓"
-		state = "ready"
-	}
-	if suffix == "" {
-		return fmt.Sprintf("%s %-26s %s", marker, row.item.Name, state)
-	}
-	return fmt.Sprintf("%s %-26s %-8s %s", marker, row.item.Name, state, suffix)
-}
-
-// taskProgressExtra renders secondary guidance for a row when a task is taking
-// longer than its expected duration.
-func taskProgressExtra(row taskProgressRow) string {
-	if row.status != "running" || row.item.Timeout <= 0 || row.startedAt.IsZero() {
-		return ""
-	}
-	elapsed := time.Since(row.startedAt)
-	if row.item.Expected <= 0 || elapsed <= row.item.Expected {
-		return ""
-	}
-	return fmt.Sprintf("   still waiting; timeout %s", formatDuration(row.item.Timeout))
 }
 
 // formatDuration renders short human-readable durations for progress rows.
@@ -604,4 +828,63 @@ func runTextTaskProgress(items []TaskProgressItem, run func(TaskProgress) error)
 			}
 		}
 	}))
+}
+
+// drainTextTaskProgress continues rendering task events as line-oriented output
+// after a running TUI has been disabled.
+func drainTextTaskProgress(items []TaskProgressItem, events <-chan TaskProgressEvent, done <-chan taskProgressDoneMsg) error {
+	successByKey := map[string]string{}
+	for _, item := range items {
+		if item.Success != "" {
+			successByKey[item.Key] = item.Success
+		}
+	}
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				events = nil
+				continue
+			}
+			printTextTaskProgressEvent(successByKey, event)
+		case result := <-done:
+			if events != nil {
+				for event := range events {
+					printTextTaskProgressEvent(successByKey, event)
+				}
+			}
+			return result.err
+		}
+	}
+}
+
+// printTextTaskProgressEvent renders one task event in the fallback text UI.
+func printTextTaskProgressEvent(successByKey map[string]string, event TaskProgressEvent) {
+	switch event.Type {
+	case TaskProgressStarted:
+		fmt.Fprintf(os.Stdout, "%s...\n", event.Name)
+	case TaskProgressDone:
+		message := event.Message
+		if message == "" {
+			message = successByKey[event.Key]
+		}
+		if message == "" {
+			message = "done"
+		}
+		fmt.Fprintf(os.Stdout, "✓ %s %s\n", event.Name, message)
+	case TaskProgressSkipped:
+		if event.Message != "" {
+			fmt.Fprintf(os.Stdout, "✓ %s %s\n", event.Name, event.Message)
+		}
+	case TaskProgressOmitted:
+		// Omitted items intentionally produce no fallback output.
+	case TaskProgressFailed:
+		if event.Err != nil {
+			fmt.Fprintf(os.Stdout, "❌ %s failed: %v\n", event.Name, event.Err)
+		}
+	case TaskProgressInfo:
+		if event.Message != "" {
+			fmt.Fprintln(os.Stdout, event.Message)
+		}
+	}
 }

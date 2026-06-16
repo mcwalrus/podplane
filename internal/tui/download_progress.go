@@ -13,7 +13,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/podplane/podplane/internal/deps"
-	"golang.org/x/term"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -24,7 +23,7 @@ const defaultDownloadProgressVisibleItems = 8
 // RunDownloadProgress renders deps download progress while run executes.
 // It falls back to plain line-oriented output when stdout is not a terminal.
 func RunDownloadProgress(title string, run func(func(deps.DownloadEvent)) error) error {
-	if !term.IsTerminal(int(os.Stdout.Fd())) {
+	if !CanUseTUI(0, 0).OK {
 		return runTextDownloadProgress(run)
 	}
 

@@ -8,9 +8,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/podplane/podplane/internal/clusterconfig"
 	"github.com/podplane/podplane/internal/config"
 	"github.com/podplane/podplane/internal/deps"
@@ -86,23 +89,55 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 			},
 		}
 		var stashPath string
+		var cluster *clusterconfig.ClusterConfig
 		if !localStartFollow {
+			kubeContext := kubectl.ContextKey(localClusterID, true)
+			checks := health.LocalStartChecks(health.LocalStartOptions{SeedName: localStartComponents, KubeContext: kubeContext, LocalIngressURL: manager.LocalIngressURL})
 			items := []tui.TaskProgressItem{
-				{Key: "server", Name: "Local server", Expected: 2 * time.Second, Timeout: 10 * time.Second},
-				{Key: "vm-image", Name: "VM image", Exclude: vmExists, Success: "created", Expected: time.Second, Timeout: 30 * time.Second},
-				{Key: "vm", Name: "VM", Success: "started", Expected: 2 * time.Second, Timeout: 30 * time.Second},
-				{Key: "cloud-init", Name: "cloud-init user-data", Exclude: vmExists, Success: "completed", Expected: 12 * time.Second, Timeout: 10 * time.Minute},
-				{Key: "system-services", Name: "systemd services", Success: "started", Expected: 2 * time.Second, Timeout: 2 * time.Minute},
-				{Key: "nstance-agent", Name: "nstance", Success: "registered", Expected: 5 * time.Second, Timeout: 2 * time.Minute},
-				{Key: "netsy", Name: "netsy", Success: "healthy", Expected: 5 * time.Second, Timeout: 2 * time.Minute},
-				{Key: "api-live", Name: "kubernetes live", Success: "live", Expected: 4 * time.Second, Timeout: 2 * time.Minute},
-				{Key: "api-ready", Name: "kubernetes ready", Success: "ready", Expected: 2 * time.Second, Timeout: 2 * time.Minute},
+				{Key: "server", Name: "local server", Expected: 2 * time.Second, Timeout: 10 * time.Second},
+				{Key: "vm-image", Name: "VM image", Group: "VM", Exclude: vmExists, Success: "created", Expected: time.Second, Timeout: 30 * time.Second},
+				{Key: "vm", Name: "VM", Group: "VM boot", Success: "started", Expected: 2 * time.Second, Timeout: 30 * time.Second},
+				{Key: "cloud-init", Name: "cloud-init user-data", Group: "VM", Exclude: vmExists, Success: "completed", Expected: 12 * time.Second, Timeout: 10 * time.Minute},
+				{Key: "system-services", Name: "systemd services", Group: "VM", Success: "started", Expected: 2 * time.Second, Timeout: 2 * time.Minute},
+				{Key: "nstance-agent", Name: "nstance", Group: "VM", Success: "registered", Expected: 5 * time.Second, Timeout: 2 * time.Minute},
+				{Key: "netsy", Name: "netsy", Group: "VM", Success: "healthy", Expected: 5 * time.Second, Timeout: 2 * time.Minute},
+				{Key: "api-live", Name: "kubernetes live", Group: "VM", Success: "live", Expected: 4 * time.Second, Timeout: 2 * time.Minute},
+				{Key: "api-ready", Name: "kubernetes ready", Group: "VM", Success: "ready", Expected: 2 * time.Second, Timeout: 2 * time.Minute},
+				{Key: "kubectl", Name: fmt.Sprintf("kubectl works with context %q", kubeContext), Ready: true, Success: "ready"},
+				{Key: "deploy-ready", Name: "podplane deploy can publish apps to this cluster", Ready: true, Success: "ready"},
+				{Key: "ingress-ready", Name: fmt.Sprintf("deployed app hostnames will resolve under *.%s.localhost", localClusterID), Ready: true, Success: "ready"},
 			}
-			err = tui.RunTaskProgress("Podplane local start", items, func(progress tui.TaskProgress) error {
+			items = append(items, localStartCheckProgressItems(checks)...)
+			err = tui.RunTaskProgress(tui.TaskProgressOptions{
+				Title:     "Podplane Local",
+				Subtitle:  fmt.Sprintf("Starting your local Podplane cluster %q", localClusterID),
+				DoneTitle: fmt.Sprintf("✓ Local Podplane cluster %q is ready", localClusterID),
+			}, items, func(progress tui.TaskProgress) error {
 				startOpts.Progress = progress
 				var startErr error
 				stashPath, startErr = manager.Start(startOpts)
-				return startErr
+				if startErr != nil {
+					return startErr
+				}
+				if stashPath == "" {
+					return nil
+				}
+				var configureErr error
+				cluster, configureErr = configureLocalKubectl(stashPath, manager, progress)
+				if configureErr != nil {
+					return configureErr
+				}
+				checks = health.LocalStartChecks(health.LocalStartOptions{SeedName: cluster.Cluster.Seed.Name, KubeContext: kubeContext, LocalIngressURL: manager.LocalIngressURL})
+				if len(checks) > 0 {
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+					defer cancel()
+					if _, healthErr := tui.RunHealthTaskProgress(ctx, checks, progress); healthErr != nil {
+						return healthErr
+					}
+				}
+				progress.Done("deploy-ready", "podplane deploy can publish apps to this cluster", "ready")
+				progress.Done("ingress-ready", fmt.Sprintf("deployed app hostnames will resolve under *.%s.localhost", cluster.Cluster.ID), "ready")
+				return nil
 			})
 		} else {
 			stashPath, err = manager.Start(startOpts)
@@ -117,45 +152,17 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 		if stashPath == "" {
 			return nil
 		}
-		cluster, err := clusterconfig.Load(stashPath)
-		if err != nil {
-			return fmt.Errorf("load local cluster config: %w", err)
-		}
-		// Local OIDC always issues tokens with sub == oidcserver.LocalSub, so we
-		// can configure kubectl now without first performing a login. We also
-		// refresh the cached token too, as local server ports can change across
-		// restarts, making an old-but-unexpired token's issuer stale.
-		key, err := oidcserver.LoadOrCreateKeypair(manager.OIDCKeyPath())
-		if err != nil {
-			return fmt.Errorf("load local OIDC keypair: %w", err)
-		}
-		idToken, err := oidcserver.IssueLocalToken(key, cluster.Cluster.OIDC.IssuerURL, cluster.Cluster.ID)
-		if err != nil {
-			return fmt.Errorf("issue local kubectl token: %w", err)
-		}
-		localAuthConfig, restoreKeyringPass, err := config.InitWithLocalKeyring()
-		if err != nil {
-			return err
-		}
-		defer restoreKeyringPass()
-		if err := localAuthConfig.AuthSet(config.AuthMetadata{
-			Sub:         oidcserver.LocalSub,
-			ClusterID:   cluster.Cluster.ID,
-			ClusterName: cluster.Cluster.Name,
-			Issuer:      cluster.Cluster.OIDC.IssuerURL,
-			ClientID:    cluster.ResolvedClientID(),
-			UserEmail:   "test@localhost",
-		}, config.AuthSecrets{IDToken: idToken}); err != nil {
-			return fmt.Errorf("cache local kubectl token: %w", err)
-		}
-		if err := kubectl.ConfigureClusterAccess(os.Stdout, cluster.Cluster.ID, cluster.ResolvedKubernetesAPIURL(), oidcserver.LocalSub, "", true); err != nil {
-			return fmt.Errorf("configure kubectl: %w", err)
+		if cluster == nil {
+			cluster, err = configureLocalKubectl(stashPath, manager, nil)
+			if err != nil {
+				return err
+			}
 		}
 		kubeContext := kubectl.ContextKey(cluster.Cluster.ID, true)
-		fmt.Printf("✓ kubectl configured for local cluster using %q context\n", kubeContext)
-		fmt.Println("You can now use kubectl with this cluster.")
-		checks := health.LocalStartChecks(health.LocalStartOptions{SeedName: cluster.Cluster.Seed.Name, KubeContext: kubeContext, LocalIngressURL: manager.LocalIngressURL})
-		if len(checks) > 0 {
+		if localStartFollow {
+			fmt.Printf("✓ kubectl configured for local cluster using %q context\n", kubeContext)
+			fmt.Println("You can now use kubectl with this cluster.")
+			checks := health.LocalStartChecks(health.LocalStartOptions{SeedName: cluster.Cluster.Seed.Name, KubeContext: kubeContext, LocalIngressURL: manager.LocalIngressURL})
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
 			if err := tui.RunHealthProgress(tui.HealthProgressOptions{
@@ -167,17 +174,14 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 				return fmt.Errorf("local cluster health check failed: %w", err)
 			}
 		}
+		printLocalStartDone(cluster.Cluster.ID)
 		if cluster.Cluster.Seed.Name == seeds.Recommended {
-			ingressURL, err := manager.LocalIngressURL()
-			if err != nil {
+			if _, err := manager.LocalIngressURL(); err != nil {
 				return fmt.Errorf("get local ingress URL: %w", err)
 			}
-			fmt.Printf("Local ingress proxy: %s\n", ingressURL)
 			if trusted, err := local.MkcertTrustInstalled(); err == nil && !trusted {
 				fmt.Println("For browsers to trust local ingress HTTPS certificates, run `mkcert -install` once.")
 			}
-			fmt.Printf("Deploy example:\n\tpodplane deploy web --name hello --image ghcr.io/podplane/hello:latest --hostname hello.%s.localhost\n", cluster.Cluster.ID)
-			fmt.Println("✓ Recommended local cluster components are ready; ingress, kubectl, and podplane deploy are ready to use.")
 		}
 		if localStartConsole {
 			if err := manager.Console(); err != nil {
@@ -188,4 +192,101 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 	}
 
 	return localStartCmd
+}
+
+// configureLocalKubectl loads the generated local cluster config, refreshes the
+// local OIDC token cache, and configures kubeconfig. When progress is provided
+// it reports kubectl readiness into the combined local-start TUI and suppresses
+// kubectl's line-oriented stdout; when progress is nil it preserves the normal
+// line-oriented output used by --follow and fallback paths.
+func configureLocalKubectl(stashPath string, manager *local.Local, progress tui.TaskProgress) (*clusterconfig.ClusterConfig, error) {
+	cluster, err := clusterconfig.Load(stashPath)
+	if err != nil {
+		return nil, fmt.Errorf("load local cluster config: %w", err)
+	}
+	if progress != nil {
+		progress.Started("kubectl", fmt.Sprintf("kubectl works with context %q", kubectl.ContextKey(cluster.Cluster.ID, true)), "")
+	}
+	// Local OIDC always issues tokens with sub == oidcserver.LocalSub, so we
+	// can configure kubectl now without first performing a login. We also
+	// refresh the cached token too, as local server ports can change across
+	// restarts, making an old-but-unexpired token's issuer stale.
+	key, err := oidcserver.LoadOrCreateKeypair(manager.OIDCKeyPath())
+	if err != nil {
+		return nil, fmt.Errorf("load local OIDC keypair: %w", err)
+	}
+	idToken, err := oidcserver.IssueLocalToken(key, cluster.Cluster.OIDC.IssuerURL, cluster.Cluster.ID)
+	if err != nil {
+		return nil, fmt.Errorf("issue local kubectl token: %w", err)
+	}
+	localAuthConfig, restoreKeyringPass, err := config.InitWithLocalKeyring()
+	if err != nil {
+		return nil, err
+	}
+	defer restoreKeyringPass()
+	if err := localAuthConfig.AuthSet(config.AuthMetadata{
+		Sub:         oidcserver.LocalSub,
+		ClusterID:   cluster.Cluster.ID,
+		ClusterName: cluster.Cluster.Name,
+		Issuer:      cluster.Cluster.OIDC.IssuerURL,
+		ClientID:    cluster.ResolvedClientID(),
+		UserEmail:   "test@localhost",
+	}, config.AuthSecrets{IDToken: idToken}); err != nil {
+		return nil, fmt.Errorf("cache local kubectl token: %w", err)
+	}
+	stdout := io.Writer(os.Stdout)
+	if progress != nil {
+		stdout = io.Discard
+	}
+	if err := kubectl.ConfigureClusterAccess(stdout, cluster.Cluster.ID, cluster.ResolvedKubernetesAPIURL(), oidcserver.LocalSub, "", true); err != nil {
+		return nil, fmt.Errorf("configure kubectl: %w", err)
+	}
+	if progress != nil {
+		progress.Done("kubectl", fmt.Sprintf("kubectl works with context %q", kubectl.ContextKey(cluster.Cluster.ID, true)), "ready")
+	}
+	return cluster, nil
+}
+
+// localStartCheckProgressItems converts component health checks into task
+// progress items so local start can render one combined progress plan.
+func localStartCheckProgressItems(checks []health.Check) []tui.TaskProgressItem {
+	items := make([]tui.TaskProgressItem, 0, len(checks))
+	for _, check := range checks {
+		items = append(items, tui.TaskProgressItem{
+			Key:      check.Key,
+			Name:     check.Name,
+			Group:    "components",
+			Success:  "ready",
+			Expected: check.Expected,
+			Timeout:  check.Timeout,
+		})
+	}
+	return items
+}
+
+// printLocalStartDone renders the final local-start success summary after the
+// live TUI has exited.
+func printLocalStartDone(clusterID string) {
+	kubeContext := kubectl.ContextKey(clusterID, true)
+	card := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(tui.ColorPrimary).
+		Padding(1, 2).
+		Width(76)
+	body := strings.Join([]string{
+		fmt.Sprintf("✓ Local Podplane cluster %q is ready", clusterID),
+		"",
+		"Ready",
+		fmt.Sprintf("• kubectl works with context %q", kubeContext),
+		"• podplane deploy can publish apps to this cluster",
+		fmt.Sprintf("• deployed app hostnames will resolve under *.%s.localhost", clusterID),
+	}, "\n")
+	fmt.Println(card.Render(body))
+	fmt.Println()
+	fmt.Println("Try this")
+	fmt.Println("  podplane deploy web --name hello --image ghcr.io/podplane/hello:latest \\")
+	fmt.Printf("    --hostname hello.%s.localhost\n", clusterID)
+	fmt.Println()
+	fmt.Println("After deploy")
+	fmt.Printf("  https://hello.%s.localhost:4433 will open your app.\n", clusterID)
 }

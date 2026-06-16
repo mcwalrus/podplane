@@ -12,7 +12,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"golang.org/x/term"
 )
 
 const statusProgressPollInterval = time.Second
@@ -40,7 +39,7 @@ func RunStatusProgress(title string, items, required []StatusProgressItem, poll 
 	if len(items) == 0 {
 		return nil
 	}
-	if !term.IsTerminal(int(os.Stdout.Fd())) {
+	if !CanUseTUI(0, 0).OK {
 		return runTextStatusProgress(items, required, poll)
 	}
 	m := statusProgressModel{
