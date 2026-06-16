@@ -74,39 +74,10 @@ func SetContext(stdout io.Writer, sub string, clusterID string, local bool) erro
 	return cmd.Run()
 }
 
-// ClusterIDFromContext returns a Podplane cluster ID from a kubeconfig
-// context. If kubeContext is empty, the current context is used.
-func ClusterIDFromContext(kubeContext, kubeconfig string) (string, error) {
-	clusterID, local, err := clusterIDFromContext(kubeContext, kubeconfig)
-	if err != nil {
-		return "", err
-	}
-	if local {
-		name := strings.TrimSpace(kubeContext)
-		if name == "" {
-			name = ContextKey(clusterID, true)
-		}
-		return "", fmt.Errorf("context %q is a local Podplane cluster; use `podplane local stop` or `podplane local delete`", name)
-	}
-	return clusterID, nil
-}
-
-// LocalClusterIDFromContext returns a local Podplane cluster ID from a
-// kubeconfig context. If kubeContext is empty, the current context is used.
-func LocalClusterIDFromContext(kubeContext, kubeconfig string) (string, error) {
-	clusterID, local, err := clusterIDFromContext(kubeContext, kubeconfig)
-	if err != nil {
-		return "", err
-	}
-	if !local {
-		return "", fmt.Errorf("context %q is not a local Podplane cluster", kubeContext)
-	}
-	return clusterID, nil
-}
-
-// clusterIDFromContext returns a kubeconfig context's Podplane cluster ID and
-// whether it is a local Podplane cluster context.
-func clusterIDFromContext(kubeContext, kubeconfig string) (string, bool, error) {
+// ClusterIDFromContext returns a kubeconfig context's Podplane cluster ID and
+// whether it is a local Podplane cluster context. If kubeContext is empty, the
+// current context is used.
+func ClusterIDFromContext(kubeContext, kubeconfig string) (string, bool, error) {
 	args := []string{"config", "view", "--raw", "--output=json"}
 	if kubeconfig != "" {
 		args = append(args, "--kubeconfig", kubeconfig)
@@ -143,7 +114,7 @@ func clusterIDFromContext(kubeContext, kubeconfig string) (string, bool, error) 
 		name = strings.TrimSpace(cfg.CurrentContext)
 	}
 	if name == "" {
-		return "", false, fmt.Errorf("no kubeconfig context selected; pass --context, --cluster, or -f/--cluster-config")
+		return "", false, fmt.Errorf("no kubeconfig context selected; pass --context or select a current context")
 	}
 
 	for _, context := range cfg.Contexts {

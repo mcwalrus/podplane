@@ -11,10 +11,16 @@ Deploys an app to the cluster using a template such as `web` or `worker`. The CL
 To update an existing app (e.g. to deploy a new image version), re-run this command with the same `--name`.
 
 ```
-podplane deploy <template> --name <name> --image <image> [flags]
+podplane deploy <template> --name <name> [--image <image>] [flags]
 ```
 
-Under the hood this resolves the template from the local dependency cache and runs `helm upgrade --install --wait --timeout 2m` by default. If the template chart is not cached, the command first runs the same download path used by `podplane deps download`. Helm waits for the rendered Kubernetes resources to become ready before printing the chart notes, so messages such as "Your app is available" are only shown after the workload is ready or the deploy has timed out. Use `--wait=false` to skip readiness waiting or `--timeout` to allow more time.
+Under the hood this resolves the template from the local dependency cache and runs `helm upgrade --install --wait --timeout 2m` by default. 
+
+If the template chart is not cached, the command first runs the same download path used by `podplane deps download`. Helm waits for the rendered Kubernetes resources to become ready before printing the chart notes, so messages such as "Your app is available" are only shown after the workload is ready or the deploy has timed out. Use `--wait=false` to skip readiness waiting or `--timeout` to allow more time.
+
+Deploy uses the selected kubeconfig context to identify the target cluster, then reads the cached cluster summary written by `podplane login -f <podplane.cluster.jsonc>` or `podplane local start`. If that summary is missing, deploy exits and asks you to log in with the cluster config first.
+
+When the cluster config enables a registry mirror, deploy rewrites template image defaults from the templates manifest to use that mirror. User-provided image values take precedence: `--image` overrides `images.app`, and `--set images.<key>=...` overrides that specific template image.
 
 Environment variables can be passed with Docker-style `-e` / `--env` flags. Use `KEY=value` to pass an explicit value, or `KEY` to read the value from the local environment. Repeating the flag sets multiple variables; if the same key is provided more than once, the last value wins.
 
@@ -32,7 +38,7 @@ Environment variable names must use Kubernetes-compatible names such as `HELLO_M
 | Flag | Description |
 | --- | --- |
 | `--name string` | Name of the app deployment (required) |
-| `--image string` | Container image to deploy (required) |
+| `--image string` | App container image to deploy. If omitted, the template default is used. |
 | `-e, --env stringArray` | Set an environment variable on the app container. Use `KEY=value` or `KEY` to read from the local environment. May be specified multiple times. |
 | `--hostname string` | External hostname for routing, when supported by the template |
 | `--path string` | URL path prefix for routing, when supported by the template |

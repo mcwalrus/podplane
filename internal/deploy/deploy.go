@@ -46,8 +46,8 @@ func Run(opts Options) error {
 		// Local clusters expose app ingress through the host-side local ingress
 		// server, so the browser-facing route port can differ from the in-cluster
 		// Traefik HTTPS port used by the HTTPRoute.
-		clusterID, err := kubectl.LocalClusterIDFromContext(opts.Context, opts.Kubeconfig)
-		if err == nil {
+		clusterID, isLocal, err := kubectl.ClusterIDFromContext(opts.Context, opts.Kubeconfig)
+		if err == nil && isLocal {
 			port = local.AppIngressRoutePort(opts.RuntimeDirectory, opts.Hostname, clusterID)
 		}
 	}

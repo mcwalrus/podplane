@@ -17,6 +17,7 @@ import (
 	"github.com/podplane/podplane/internal/deploy"
 	"github.com/podplane/podplane/internal/deps"
 	"github.com/podplane/podplane/internal/health"
+	"github.com/podplane/podplane/internal/kubectl"
 	"github.com/podplane/podplane/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -58,12 +59,22 @@ func init() {
 	deployCmd.Flags().DurationVar(&deployTimeout, "timeout", 2*time.Minute, "Time to wait for Kubernetes resources to become ready")
 	deployCmd.Flags().BoolVarP(&deployAutoApprove, "auto-approve", "y", false, "Skip confirmation prompts")
 	_ = deployCmd.MarkFlagRequired("name")
-	_ = deployCmd.MarkFlagRequired("image")
 }
 
 func newDeployCmd(c *config.Config) *cobra.Command {
 	deployCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		cmd.SilenceUsage = true
+		clusterID, _, err := kubectl.ClusterIDFromContext(deployContext, deployKubeconfig)
+		if err != nil {
+			return err
+		}
+		clusterSummary, err := c.ClusterSummary(clusterID)
+		if err != nil {
+			return err
+		}
+		if clusterSummary.Cluster.ID == "" {
+			return fmt.Errorf("cluster summary for %q is not cached; run `podplane login -f <podplane.cluster.jsonc>` for this cluster", clusterID)
+		}
 		chart, err := deploy.EnsureChart(c, args[0], func(download func(func(deps.DownloadEvent)) error) error {
 			return tui.RunDownloadProgress("Downloading Podplane dependencies", download)
 		})
@@ -73,6 +84,7 @@ func newDeployCmd(c *config.Config) *cobra.Command {
 		if err := ensureTemplateDependencies(chart.Template.Dependencies.Components); err != nil {
 			return err
 		}
+		mirrorSetArgs := deploy.TemplateMirrorSetArgs(chart.Images, args[0], clusterSummary, deployImage, deploySet)
 		return deploy.Run(deploy.Options{
 			Template:         args[0],
 			Name:             deployName,
@@ -82,7 +94,7 @@ func newDeployCmd(c *config.Config) *cobra.Command {
 			Hostname:         deployHostname,
 			Path:             deployPath,
 			RuntimeDirectory: c.RuntimeDirectory(),
-			Set:              deploySet,
+			Set:              append(mirrorSetArgs, deploySet...),
 			Namespace:        deployNamespace,
 			Context:          deployContext,
 			Kubeconfig:       deployKubeconfig,

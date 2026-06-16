@@ -150,6 +150,7 @@ func (c *Config) InitFile() error {
 	// set defaults
 	c.viperFile.SetDefault("config.version", configFileVersion)
 	c.viperFile.SetDefault("auth", map[string]AuthMetadata{})
+	c.viperFile.SetDefault("clusters", map[string]ClusterSummary{})
 	return nil
 }
 

@@ -65,7 +65,7 @@ The `XDG_*` environment variables can be used on any operating system to move Po
 
 ### Config Files
 
-- **Auth metadata file**: stores durable metadata needed to resolve auth state, but not token secrets. It influences CLI/kubectl auth behavior and is small, structured, persistent configuration.
+- **Auth metadata and cluster summaries file**: stores durable metadata needed to resolve auth state and cluster settings such as the configured registry mirror, but not token secrets. It influences CLI/kubectl auth and deploy behavior and is small, structured, persistent configuration.
 - **File-backed keyring fallback file/store**: used only when file-backed keyring is enabled. It is encrypted and contains persistent auth secret material, so it is not cache, data, or runtime. Keep it with auth-related config.
 
 ### Cache Files

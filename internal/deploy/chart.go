@@ -13,6 +13,7 @@ import (
 type Chart struct {
 	Path     string
 	Template deps.TemplateChart
+	Images   []deps.TemplateImage
 }
 
 // EnsureChart returns the local Helm chart path for template, downloading
@@ -22,7 +23,11 @@ type Chart struct {
 func EnsureChart(c *config.Config, template string, wrap func(download func(progress func(deps.DownloadEvent)) error) error) (Chart, error) {
 	m := deps.NewManager(c.DepsBaseURL(), c.DepsCacheDir())
 	if chart, path, err := m.CachedTemplateChart(template); err == nil {
-		return Chart{Path: path, Template: chart}, nil
+		images, err := cachedTemplateImages(m)
+		if err != nil {
+			return Chart{}, err
+		}
+		return Chart{Path: path, Template: chart, Images: images}, nil
 	}
 	download := func(progress func(deps.DownloadEvent)) error {
 		return m.Download(c.InstanceKind(), c.Arch(), deps.DownloadOptions{Progress: progress})
@@ -38,5 +43,22 @@ func EnsureChart(c *config.Config, template string, wrap func(download func(prog
 	if err != nil {
 		return Chart{}, err
 	}
-	return Chart{Path: path, Template: chart}, nil
+	images, err := cachedTemplateImages(m)
+	if err != nil {
+		return Chart{}, err
+	}
+	return Chart{Path: path, Template: chart, Images: images}, nil
+}
+
+// cachedTemplateImages returns the image entries from the cached templates
+// manifest so deploy can apply image-related template metadata.
+func cachedTemplateImages(m *deps.Manager) ([]deps.TemplateImage, error) {
+	manifest, _, err := m.ReadCachedTemplatesManifest()
+	if err != nil {
+		return nil, err
+	}
+	if manifest == nil {
+		return nil, nil
+	}
+	return manifest.Templates.Images, nil
 }

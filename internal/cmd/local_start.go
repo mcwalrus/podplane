@@ -262,6 +262,9 @@ func configureLocalKubectl(stashPath string, manager *local.Local, progress tui.
 	}, config.AuthSecrets{IDToken: idToken}); err != nil {
 		return nil, fmt.Errorf("cache local kubectl token: %w", err)
 	}
+	if err := localAuthConfig.SetClusterSummary(config.ClusterSummaryFromConfig(cluster)); err != nil {
+		return nil, fmt.Errorf("cache local cluster summary: %w", err)
+	}
 	stdout := io.Writer(os.Stdout)
 	if progress != nil {
 		stdout = io.Discard

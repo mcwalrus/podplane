@@ -51,9 +51,17 @@ revoke the tokens at the issuer.`,
 			}
 			if clusterID == "" {
 				var err error
-				clusterID, err = kubectl.ClusterIDFromContext(logoutContext, logoutKubeconfig)
+				var local bool
+				clusterID, local, err = kubectl.ClusterIDFromContext(logoutContext, logoutKubeconfig)
 				if err != nil {
 					return err
+				}
+				if local {
+					name := strings.TrimSpace(logoutContext)
+					if name == "" {
+						name = kubectl.ContextKey(clusterID, true)
+					}
+					return fmt.Errorf("context %q is a local Podplane cluster; use `podplane local stop` or `podplane local delete`", name)
 				}
 			}
 			if err := clusterconfig.ValidateClusterID(clusterID); err != nil {

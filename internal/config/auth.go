@@ -148,10 +148,9 @@ func (c *Config) AuthListByCluster(clusterID string) ([]AuthMetadata, error) {
 	return out, nil
 }
 
-// decodeMap converts a generic map[string]any (as returned by viper) into the
-// given AuthMetadata struct. Uses a JSON round-trip to keep the dependency
-// surface small.
-func decodeMap(in map[string]any, out *AuthMetadata) error {
+// decodeMap converts a generic map[string]any (as returned by viper) into out.
+// Uses a JSON round-trip to keep the dependency surface small.
+func decodeMap(in map[string]any, out any) error {
 	b, err := json.Marshal(in)
 	if err != nil {
 		return err

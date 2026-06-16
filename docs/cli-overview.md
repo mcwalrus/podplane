@@ -56,6 +56,8 @@ The CLI uses the current working directory to find the relevant `podplane.cluste
 
 - Alternatively, you can specify a config file path using the `-f` flag e.g. `podplane login -f ./my-cluster/podplane.cluster.jsonc`
 
+`podplane login` also caches a cluster summary used by later kube-context commands. For example, `podplane deploy` uses the cached summary to know whether the selected cluster has a registry mirror. If deploy reports a missing cluster summary, run `podplane login -f <podplane.cluster.jsonc>` for that cluster.
+
 We recommend setting up a Git repository for storing all of your cluster and OIDC server infrastructure-as-code, for example:
 
 ```
@@ -113,7 +115,7 @@ See [CLI Storage](cli-storage.md) for more details about these files and how the
 
 These commands help you deploy workloads using templates such as the `web` or `worker` app template.
 
-- `deploy <template> --name <name> --image <image> [-e KEY=value]` deploy an app using a template. The CLI will prompt to install addon components if they have required dependencies which are not installed. Repeat `-e` / `--env` to set non-secret environment variables on the app container.
+- `deploy <template> --name <name> [--image <image>] [-e KEY=value]` deploy an app using a template. The CLI will prompt to install addon components if they have required dependencies which are not installed. Repeat `-e` / `--env` to set non-secret environment variables on the app container. If `--image` is omitted, the template default image is used.
 - `remove --name <name>` remove a previously deployed app.
 - `logs <name>` tail logs for a deployed app.
 

@@ -16,12 +16,14 @@ func withValuesFile(image string, env map[string]string, hostname, path string, 
 		env = map[string]string{}
 	}
 	values := map[string]any{
-		"images": map[string]any{
-			"app": image,
-		},
 		"app": map[string]any{
 			"env": env,
 		},
+	}
+	if image != "" {
+		values["images"] = map[string]any{
+			"app": image,
+		}
 	}
 	if hostname != "" || path != "" || port != 0 {
 		route := map[string]any{}

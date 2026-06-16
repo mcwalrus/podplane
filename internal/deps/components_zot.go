@@ -296,6 +296,21 @@ func mirrorRepoFromChartImage(chartImage string) string {
 	return "docker.io/library/" + image
 }
 
+// MirroredImageRef returns the explicit image reference served by mirrorHost
+// for a source image cached with Podplane's zot repository layout.
+func MirroredImageRef(mirrorHost, image string) string {
+	repo, tag, digest := splitImageRef(image)
+	repo = mirrorRepoFromChartImage(repo)
+	ref := mirrorHost + "/" + repo
+	if tag != "" {
+		ref += ":" + tag
+	}
+	if digest != "" {
+		ref += "@" + digest
+	}
+	return ref
+}
+
 // splitImageRef splits an image reference into repository, tag, and digest parts.
 func splitImageRef(image string) (repo string, tag string, digest string) {
 	if before, after, ok := strings.Cut(image, "@"); ok {

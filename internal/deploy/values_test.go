@@ -79,3 +79,24 @@ func TestWithValuesFileOmitsRouteWhenUnset(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestWithValuesFileOmitsImageWhenUnset(t *testing.T) {
+	t.Parallel()
+	err := withValuesFile("", nil, "", "", 0, func(valuesPath string) error {
+		raw, err := os.ReadFile(valuesPath)
+		if err != nil {
+			return err
+		}
+		var values map[string]any
+		if err := json.Unmarshal(raw, &values); err != nil {
+			return err
+		}
+		if _, ok := values["images"]; ok {
+			t.Fatalf("images should be omitted when --image is unset: %#v", values)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

@@ -6,10 +6,10 @@ description: "App deployment templates for web apps and background workers"
 
 # Templates
 
-App templates are opinionated Helm charts that make it easy to deploy common workload types via `podplane deploy`. Each template handles the boilerplate - networking, TLS, ingress - so you only need to provide the basics like an app name and your container image.
+App templates are opinionated Helm charts that make it easy to deploy common workload types via `podplane deploy`. Each template handles the boilerplate - networking, TLS, ingress - so you only need to provide the basics like an app name and, when you do not want the template default, your container image.
 
 ```bash
-podplane deploy <template> --name <name> --image <image>
+podplane deploy <template> --name <name> [--image <image>]
 ```
 
 Environment variables can be set with Docker-style `-e` / `--env` flags:
@@ -24,6 +24,8 @@ Use `KEY=value` to pass an explicit value, or `KEY` to read the value from the l
 Templates may have component dependencies. If the required addon components aren't installed, the CLI will prompt you to install them.
 
 To update an existing app (e.g. to deploy a new image version), simply re-run `podplane deploy` with the same `--name`.
+
+Deploy requires a cached cluster summary for the selected kubeconfig context. `podplane login -f <podplane.cluster.jsonc>` writes this summary for remote clusters, and `podplane local start` writes it for local clusters. This summary is used to determine if a registry mirror should be interpolated into template default image references.
 
 Under the hood deploy runs `helm upgrade --install --wait --timeout 2m` by default, so Helm waits for rendered resources to become ready before printing chart notes. Use `--wait=false` to skip readiness waiting or `--timeout` to allow more time.
 
@@ -45,7 +47,7 @@ Your app container serves plain HTTP on port 80 by default - the Caddy sidecar h
 
 ### Template values
 
-Use [`podplane deploy`](./cli-reference/deploy.md) flags for universal inputs such as app name, image, and environment variables.
+Use [`podplane deploy`](./cli-reference/deploy.md) flags for universal inputs such as app name, optional image override, and environment variables.
 
 The web template also supports the ergonomic routing flags `--hostname` and `--path`. For non-standard external HTTPS ports, set `route.port` with `--set route.port=<port>`.
 
@@ -53,7 +55,7 @@ Template-specific values can be set with `--set` e.g.:
 
 | Value | Default | Description |
 |---|---|---|
-| `images.app` | `ghcr.io/podplane/hello:latest` | App container image; `--image` maps here |
+| `images.app` | `ghcr.io/podplane/hello:latest` | App container image default; `--image` maps here |
 | `images.caddy` | `docker.io/library/caddy:2` | Caddy sidecar image |
 | `app.env` | `{}` | Non-secret environment variables for the app container; `--env` maps here |
 | `app.port` | `80` | Plain HTTP port exposed by the app container |
@@ -101,7 +103,7 @@ This is suitable for queue consumers, cron-like processors, or any workload that
 
 ### Template values
 
-Use [`podplane deploy`](./cli-reference/deploy.md) flags for universal inputs such as worker name, image, and environment variables. Worker-specific configuration should be exposed as schema-backed template values and set with `--set`.
+Use [`podplane deploy`](./cli-reference/deploy.md) flags for universal inputs such as worker name, optional image override, and environment variables. Worker-specific configuration should be exposed as schema-backed template values and set with `--set`.
 
 ### Example
 
@@ -121,6 +123,8 @@ Every template chart must include `values.schema.json`. The schema is the contra
 Template charts must put container image values under `images`. The `--image` flag maps to the app workload image, conventionally `images.app`; template-owned support images use sibling keys such as `images.caddy`. This gives Podplane one predictable place to inspect, prefetch, mirror, or override image references.
 
 Template manifests include a flat `templates.images` list, modelled after the components image manifest. Each row records a resolved image for one platform (`image`, `digest`, `size`, `platform`, and optional `index`) plus a `templates` map from template name to the image key under `images`. For example, `"templates": {"web": "caddy"}` means the image is referenced by the web template at `images.caddy`.
+
+When the cached cluster summary enables a registry mirror, `podplane deploy` uses this manifest metadata to inject mirrored refs for template image defaults. Explicit user overrides are preserved: `--image` prevents generated mirror injection for `images.app`, and `--set images.<key>=...` prevents generated mirror injection for that image key.
 
 Some flags are common ergonomic shortcuts for template values. Today `--hostname` maps to `route.hostname`, and `--path` maps to `route.path`. Because not every template supports routing, the deploy command checks the template's `values.schema.json` and fails loudly if one of these flags is used with an unsupported template.
 

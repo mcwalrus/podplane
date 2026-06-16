@@ -32,6 +32,22 @@ func TestMirrorRepoFromChartImagePreservesRenderedRepoPath(t *testing.T) {
 	}
 }
 
+func TestMirroredImageRef(t *testing.T) {
+	tests := map[string]string{
+		"docker.io/library/caddy:2":           "zot.local/docker.io/library/caddy:2",
+		"caddy:latest":                        "zot.local/docker.io/library/caddy:latest",
+		"coredns/coredns:1.11.3":              "zot.local/docker.io/coredns/coredns:1.11.3",
+		"ghcr.io/podplane/hello@sha256:abc":   "zot.local/ghcr.io/podplane/hello@sha256:abc",
+		"quay.io/cilium/cilium:v1@sha256:def": "zot.local/quay.io/cilium/cilium:v1@sha256:def",
+		"localhost:5000/example/app:tag":      "zot.local/localhost:5000/example/app:tag",
+	}
+	for input, want := range tests {
+		if got := MirroredImageRef("zot.local", input); got != want {
+			t.Fatalf("MirroredImageRef(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestRegistryHostFromImage(t *testing.T) {
 	tests := map[string]string{
 		"public.ecr.aws/csi-components/csi-attacher:v4.9.0-eksbuild.3": "public.ecr.aws",
