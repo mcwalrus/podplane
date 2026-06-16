@@ -182,18 +182,19 @@ func TestGetSeedConfigReadsSavedValue(t *testing.T) {
 	if !strings.Contains(string(raw), `"hostname": "dev-registry.local"`) {
 		t.Fatalf("cluster config should include local registry mirror hostname:\n%s", raw)
 	}
-	seed, err := m.getSeedConfig("dev")
+	m.clusterID = "dev"
+	seed, err := m.SeedConfig()
 	if err != nil {
-		t.Fatalf("getSeedConfig: %v", err)
+		t.Fatalf("SeedConfig: %v", err)
 	}
 	if seed.Name != seeds.None {
-		t.Fatalf("getSeedConfig name = %q, want %q", seed.Name, seeds.None)
+		t.Fatalf("SeedConfig name = %q, want %q", seed.Name, seeds.None)
 	}
 }
 
-func TestGetSeedConfigRejectsMissingConfig(t *testing.T) {
-	m := &Local{dataDir: t.TempDir()}
-	if _, err := m.getSeedConfig("dev"); err == nil {
+func TestSeedConfigRejectsMissingConfig(t *testing.T) {
+	m := &Local{dataDir: t.TempDir(), clusterID: "dev"}
+	if _, err := m.SeedConfig(); err == nil {
 		t.Fatalf("expected missing config error")
 	}
 }

@@ -63,6 +63,16 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 		if err != nil {
 			return fmt.Errorf("check local VM status: %w", err)
 		}
+		vmExists := running
+		if !vmExists {
+			vmExists, err = manager.Exists()
+			if err != nil {
+				return fmt.Errorf("check local VM exists: %w", err)
+			}
+		}
+		if vmExists && cmd.Flags().Changed("components") {
+			return fmt.Errorf("--components can only be used when creating a new local cluster; existing local cluster %q already has its initial components recorded in cluster.jsonc", localClusterID)
+		}
 		if running {
 			fmt.Fprintln(os.Stdout, "VM is already running")
 			if localStartConsole {
@@ -71,10 +81,6 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 				}
 			}
 			return nil
-		}
-		vmExists, err := manager.Exists()
-		if err != nil {
-			return fmt.Errorf("check local VM exists: %w", err)
 		}
 		if err := local.CheckServerRuntimeDependencies(); err != nil {
 			return fmt.Errorf("local server dependency check failed: %w", err)
@@ -92,7 +98,12 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 		var cluster *clusterconfig.ClusterConfig
 		if !localStartFollow {
 			kubeContext := kubectl.ContextKey(localClusterID, true)
-			checks := health.LocalStartChecks(health.LocalStartOptions{SeedName: localStartComponents, KubeContext: kubeContext, LocalIngressURL: manager.LocalIngressURL})
+			var seedName string
+			seedName, err = localStartSeedName(manager, vmExists, localStartComponents)
+			if err != nil {
+				return err
+			}
+			checks := health.LocalStartChecks(health.LocalStartOptions{SeedName: seedName, KubeContext: kubeContext, LocalIngressURL: manager.LocalIngressURL})
 			items := []tui.TaskProgressItem{
 				{Key: "server", Name: "local server", Expected: 2 * time.Second, Timeout: 10 * time.Second},
 				{Key: "vm-image", Name: "VM image", Group: "VM", Exclude: vmExists, Success: "created", Expected: time.Second, Timeout: 30 * time.Second},
@@ -127,7 +138,6 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 				if configureErr != nil {
 					return configureErr
 				}
-				checks = health.LocalStartChecks(health.LocalStartOptions{SeedName: cluster.Cluster.Seed.Name, KubeContext: kubeContext, LocalIngressURL: manager.LocalIngressURL})
 				if len(checks) > 0 {
 					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 					defer cancel()
@@ -192,6 +202,24 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 	}
 
 	return localStartCmd
+}
+
+// localStartSeedName returns the seed name that local start will use for this
+// run. New clusters use --components; existing clusters use the recorded seed
+// because seeding is first-boot-only.
+func localStartSeedName(manager *local.Local, vmExists bool, requested string) (string, error) {
+	if !vmExists {
+		seedName, err := seeds.ParseName(requested)
+		if err != nil {
+			return "", fmt.Errorf("invalid --components: %w", err)
+		}
+		return seedName, nil
+	}
+	seed, err := manager.SeedConfig()
+	if err != nil {
+		return "", err
+	}
+	return seed.Name, nil
 }
 
 // configureLocalKubectl loads the generated local cluster config, refreshes the

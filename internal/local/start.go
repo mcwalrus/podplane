@@ -178,7 +178,7 @@ func (m *Local) Start(opts StartOptions) (string, error) {
 	// manifest because only new VMs write the initial Netsy snapshot.
 	seed := clusterconfig.Seed{Name: seeds.None}
 	if vmExisted {
-		seed, err = m.getSeedConfig(clusterID)
+		seed, err = m.SeedConfig()
 		if err != nil {
 			return "", err
 		}
@@ -507,8 +507,12 @@ func (m *Local) existingInstanceID(clusterID string) string {
 	return string(match[1])
 }
 
-// getSeedConfig returns cluster.seed from an existing local cluster config.
-func (m *Local) getSeedConfig(clusterID string) (clusterconfig.Seed, error) {
+// SeedConfig returns cluster.seed from this local cluster's config.
+func (m *Local) SeedConfig() (clusterconfig.Seed, error) {
+	if m.clusterID == "" {
+		return clusterconfig.Seed{}, fmt.Errorf("clusterID must be set")
+	}
+	clusterID := m.clusterID
 	path := ClusterConfigPath(m.dataDir, clusterID)
 	cfg, err := clusterconfig.Load(path)
 	if err != nil {
