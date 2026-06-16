@@ -167,10 +167,12 @@ func (p TaskProgress) Failed(key, name string, err error) {
 // RunTaskProgress renders sequential task progress while run executes. The UI
 // includes an overall expected-time bar plus per-item rows; both are expectation
 // indicators, not exact work-completion percentages. It falls back to
-// line-oriented output when stdout is not a terminal.
+// line-oriented output when stdout cannot support an interactive TUI. Small
+// terminals still start the TUI so users see the resize prompt and can press p
+// to switch to plain output if desired.
 func RunTaskProgress(opts TaskProgressOptions, items []TaskProgressItem, run func(TaskProgress) error) error {
 	items = includedTaskProgressItems(items)
-	if !CanUseTUI(MinTUIWidth, MinTUIHeight).OK {
+	if !CanUseTUI(0, 0).OK {
 		return runTextTaskProgress(items, run)
 	}
 	if opts.Title == "" {
