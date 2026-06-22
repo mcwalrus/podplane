@@ -18,6 +18,7 @@ import (
 	"github.com/podplane/podplane/internal/deps"
 	"github.com/podplane/podplane/internal/health"
 	"github.com/podplane/podplane/internal/kubectl"
+	"github.com/podplane/podplane/internal/secrets"
 	"github.com/podplane/podplane/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -34,6 +35,7 @@ var (
 	deployName        string
 	deployImage       string
 	deployEnv         []string
+	deploySecrets     []string
 	deployHostname    string
 	deployPath        string
 	deploySet         []string
@@ -49,6 +51,7 @@ func init() {
 	deployCmd.Flags().StringVar(&deployName, "name", "", "Name of the app deployment")
 	deployCmd.Flags().StringVar(&deployImage, "image", "", "Container image to deploy")
 	deployCmd.Flags().StringArrayVarP(&deployEnv, "env", "e", nil, "Set an environment variable on the app container")
+	deployCmd.Flags().StringArrayVar(&deploySecrets, "secret", nil, "Bind a secrets provider key through the template's default SecretProviderBinding")
 	deployCmd.Flags().StringVar(&deployHostname, "hostname", "", "External hostname for routing")
 	deployCmd.Flags().StringVar(&deployPath, "path", "", "URL path prefix for routing")
 	deployCmd.Flags().StringArrayVar(&deploySet, "set", nil, "Set a template value using Helm --set syntax")
@@ -85,6 +88,10 @@ func newDeployCmd(c *config.Config) *cobra.Command {
 			return err
 		}
 		mirrorSetArgs := deploy.TemplateMirrorSetArgs(chart.Images, args[0], clusterSummary, deployImage, deploySet)
+		secretSetArgs, err := deploySecretSetArgs(clusterSummary, deployName, deploySecrets)
+		if err != nil {
+			return err
+		}
 		return deploy.Run(deploy.Options{
 			Template:         args[0],
 			Name:             deployName,
@@ -94,7 +101,7 @@ func newDeployCmd(c *config.Config) *cobra.Command {
 			Hostname:         deployHostname,
 			Path:             deployPath,
 			RuntimeDirectory: c.RuntimeDirectory(),
-			Set:              append(mirrorSetArgs, deploySet...),
+			Set:              append(append(mirrorSetArgs, secretSetArgs...), deploySet...),
 			Namespace:        deployNamespace,
 			Context:          deployContext,
 			Kubeconfig:       deployKubeconfig,
@@ -103,6 +110,40 @@ func newDeployCmd(c *config.Config) *cobra.Command {
 		})
 	}
 	return deployCmd
+}
+
+// deploySecretSetArgs renders the simple --secret UX into the template's
+// SecretProviderBinding values array. User-supplied --set values win by being
+// appended after these defaults.
+func deploySecretSetArgs(summary config.ClusterSummary, bindingName string, keys []string) ([]string, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	if err := secrets.ValidateScopeName("--name", bindingName); err != nil {
+		return nil, err
+	}
+	providerName := summary.Secrets.DefaultProvider
+	if providerName == "" || len(summary.Secrets.Providers) == 0 {
+		return nil, fmt.Errorf("--secret requires a cached default secrets provider for this cluster; rerun login/local start after configuring cluster.secrets")
+	}
+	if _, ok := summary.Secrets.Providers[providerName]; !ok {
+		return nil, fmt.Errorf("default secrets provider %q is not configured for cluster %q", providerName, summary.ID)
+	}
+	if err := secrets.ValidateProviderName(providerName); err != nil {
+		return nil, err
+	}
+	args := []string{
+		"secrets[0].bindingName=" + bindingName,
+		"secrets[0].providerName=" + providerName,
+		"secrets[0].mountPath=/var/run/podplane/secrets",
+	}
+	for i, key := range keys {
+		if err := secrets.ValidateKey(key); err != nil {
+			return nil, fmt.Errorf("--secret %q: %w", key, err)
+		}
+		args = append(args, fmt.Sprintf("secrets[0].items[%d].key=%s", i, key))
+	}
+	return args, nil
 }
 
 // ensureTemplateDependencies enables any missing component dependencies for a

@@ -46,6 +46,7 @@
           "description": "Cloud provider infrastructure configuration. Cluster create currently supports AWS.",
           "items": { "$ref": "#/$defs/provider" }
         },
+        "secrets": { "$ref": "#/$defs/secrets" },
         "kubernetes": { "$ref": "#/$defs/kubernetes" },
         "seed": { "$ref": "#/$defs/seed" },
         "components": { "$ref": "#/$defs/components" }
@@ -199,6 +200,48 @@
           "description": "Additional provider roles keyed by role name.",
           "additionalProperties": { "$ref": "#/$defs/role" }
         }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default_provider", "providers"],
+      "properties": {
+        "default_provider": {
+          "type": "string",
+          "description": "Default Podplane Secrets provider name used by podplane secret and templates."
+        },
+        "providers": {
+          "type": "object",
+          "description": "Named Podplane Secrets providers. Only safe provider-selection metadata belongs here; credentials are configured on the operator.",
+          "propertyNames": {
+            "maxLength": 32,
+            "pattern": "^(?!.*--)[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+          },
+          "additionalProperties": { "$ref": "#/$defs/secretsProvider" }
+        }
+      }
+    },
+    "secretsProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["aws", "gcp", "vault", "openbao"],
+          "description": "Upstream Secrets Store CSI provider slug."
+        },
+        "object_type": {
+          "type": "string",
+          "enum": ["secretsmanager", "ssmparameter"],
+          "description": "AWS Secrets Store CSI objectType used for template rendering."
+        },
+        "region": { "type": "string", "description": "AWS region used for provider API calls." },
+        "project_id": { "type": "string", "description": "GCP project ID used for SecretProviderClass rendering." },
+        "location": { "type": "string", "description": "Optional GCP regional Secret Manager location." },
+        "address": { "type": "string", "description": "Vault/OpenBao server address used by operator/runtime configuration." },
+        "mount_path": { "type": "string", "description": "Vault/OpenBao KV-v2 mount name." }
       }
     },
     "vpc": {

@@ -183,6 +183,10 @@ For the operational impact of changing cluster fields after initial deployment, 
 | `cluster.providers[].buckets` | Array of app-accessible object storage bucket names. Cloud bucket names are derived as `{cluster.id}-{name}`. |
 | `cluster.providers[].roles.<name>.buckets` | Array of bucket names this role can access |
 | `cluster.providers[].roles.<name>.permissions` | Resource access level - `read-write` or `read-only` (default: `read-write`) |
+| `cluster.secrets.default_provider` | Default secrets provider name used by `podplane secret` and templates when `--provider` is omitted. |
+| `cluster.secrets.providers` | Named secrets providers. Only provider-selection metadata belongs here; credentials are configured on the operator deployment. |
+| `cluster.secrets.providers.<name>.kind` | Secrets provider kind, such as `aws`, `gcp`, or `openbao`. |
+| `cluster.secrets.providers.<name>.object_type` | AWS Secrets Store CSI object type, such as `secretsmanager` or `ssmparameter`. |
 | `cluster.kubernetes.api_hostname` | External hostname for the kube-apiserver (defaults to `k8s.<first domain zone>`) |
 | `cluster.kubernetes.api_port` | Port for the kube-apiserver (default: `6443`) |
 | `cluster.kubernetes.cluster_cidr` | CIDR ranges for Pod IPs, joined with commas for kube-controller-manager `--cluster-cidr` |

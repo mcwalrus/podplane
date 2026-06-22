@@ -11,6 +11,7 @@ import (
 )
 
 var clusterIDPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+var secretsProviderNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
 // ValidateClusterID validates a cluster ID using Netsy's identifier rules.
 func ValidateClusterID(id string) error {
@@ -69,6 +70,59 @@ func ValidateComponents(components Components) error {
 	return nil
 }
 
+// ValidateSecrets validates safe Podplane Secrets provider metadata.
+func ValidateSecrets(secrets Secrets) error {
+	if len(secrets.Providers) == 0 {
+		if secrets.DefaultProvider != "" {
+			return fmt.Errorf("default_provider requires at least one provider")
+		}
+		return nil
+	}
+	if secrets.DefaultProvider == "" {
+		return fmt.Errorf("default_provider is required when providers are configured")
+	}
+	if err := validateSecretsProviderName("default_provider", secrets.DefaultProvider); err != nil {
+		return err
+	}
+	for name, provider := range secrets.Providers {
+		prefix := fmt.Sprintf("providers.%s", name)
+		if err := validateSecretsProviderName(prefix, name); err != nil {
+			return err
+		}
+		switch provider.Kind {
+		case "aws":
+			if provider.ObjectType != "secretsmanager" && provider.ObjectType != "ssmparameter" {
+				return fmt.Errorf("%s.object_type must be secretsmanager or ssmparameter for aws", prefix)
+			}
+		case "gcp":
+			if provider.ProjectID == "" {
+				return fmt.Errorf("%s.project_id is required for gcp", prefix)
+			}
+		case "vault", "openbao":
+			// Address and mount_path are operator/runtime routing fields and are
+			// intentionally stripped from cached cluster summaries.
+		case "":
+			return fmt.Errorf("%s.kind is required", prefix)
+		default:
+			return fmt.Errorf("%s.kind must be aws, gcp, vault, or openbao", prefix)
+		}
+	}
+	if _, ok := secrets.Providers[secrets.DefaultProvider]; !ok {
+		return fmt.Errorf("default_provider %q does not match a configured provider", secrets.DefaultProvider)
+	}
+	return nil
+}
+
+func validateSecretsProviderName(prefix, name string) error {
+	if name == "" {
+		return fmt.Errorf("%s is required", prefix)
+	}
+	if len(name) > 32 || !secretsProviderNamePattern.MatchString(name) || strings.Contains(name, "--") {
+		return fmt.Errorf("%s must be lowercase alphanumeric with hyphens, no leading/trailing hyphens, no consecutive hyphens, no dots, and at most 32 characters", prefix)
+	}
+	return nil
+}
+
 // Validate validates the cluster config fields that are required for managed
 // OpenTofu/Terraform generation.
 func Validate(cfg *ClusterConfig) error {
@@ -86,6 +140,9 @@ func Validate(cfg *ClusterConfig) error {
 	}
 	if err := ValidateComponents(cfg.Cluster.Components); err != nil {
 		return fmt.Errorf("cluster.components: %w", err)
+	}
+	if err := ValidateSecrets(cfg.Cluster.Secrets); err != nil {
+		return fmt.Errorf("cluster.secrets: %w", err)
 	}
 	if len(cfg.Cluster.Providers) == 0 {
 		return fmt.Errorf("cluster.providers must contain at least one provider")

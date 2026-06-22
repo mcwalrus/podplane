@@ -61,6 +61,34 @@ func TestSetClusterSummary(t *testing.T) {
 	}
 }
 
+func TestClusterSummaryFromConfigStripsSecretsProviderDetails(t *testing.T) {
+	cluster := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
+		ID: "test-cluster",
+		Secrets: clusterconfig.Secrets{
+			DefaultProvider: "aws-secrets-manager",
+			Providers: map[string]clusterconfig.SecretsProvider{
+				"aws-secrets-manager": {
+					Kind:       "aws",
+					ObjectType: "secretsmanager",
+					Region:     "us-east-1",
+				},
+			},
+		},
+	}}
+
+	summary := ClusterSummaryFromConfig(cluster)
+	provider := summary.Secrets.Providers["aws-secrets-manager"]
+	if got, want := summary.Secrets.DefaultProvider, "aws-secrets-manager"; got != want {
+		t.Fatalf("default provider = %q, want %q", got, want)
+	}
+	if got, want := provider.Kind, "aws"; got != want {
+		t.Fatalf("provider kind = %q, want %q", got, want)
+	}
+	if provider.ObjectType != "" || provider.Region != "" || provider.ProjectID != "" || provider.Location != "" || provider.Address != "" || provider.MountPath != "" {
+		t.Fatalf("provider details persisted in summary: %#v", provider)
+	}
+}
+
 func TestSetLocalClusterSummaryUsesScopedKey(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	c, err := Init()

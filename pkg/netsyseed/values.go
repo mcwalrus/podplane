@@ -33,6 +33,7 @@ func buildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig) (map[string
 		applyRegistryMirror(components, cfg.Cluster.Components.Registry.Mirror)
 	}
 	applyProviderComponents(components, cfg.Cluster.Providers)
+	applySecretsComponents(components, cfg.Cluster.Secrets.Providers)
 	if len(cfg.Cluster.Domains) == 0 {
 		return values, nil
 	}
@@ -109,6 +110,28 @@ func applyProviderComponents(components map[string]any, providers []clusterconfi
 		switch provider.Kind {
 		case "aws":
 			apps["csi-aws-ebs"] = map[string]any{"enabled": true}
+		}
+	}
+}
+
+// applySecretsComponents enables Secrets Store CSI Driver and provider
+// components required by configured Podplane Secrets providers.
+func applySecretsComponents(components map[string]any, providers map[string]clusterconfig.SecretsProvider) {
+	if len(providers) == 0 {
+		return
+	}
+	apps := ensureChildMap(components, "apps")
+	apps["secrets-store-csi-driver"] = map[string]any{"enabled": true}
+	for _, provider := range providers {
+		switch provider.Kind {
+		case "aws":
+			apps["secrets-store-csi-driver-provider-aws"] = map[string]any{"enabled": true}
+		case "gcp":
+			apps["secrets-store-csi-driver-provider-gcp"] = map[string]any{"enabled": true}
+		case "vault":
+			apps["secrets-store-csi-driver-provider-vault"] = map[string]any{"enabled": true}
+		case "openbao":
+			apps["secrets-store-csi-driver-provider-openbao"] = map[string]any{"enabled": true}
 		}
 	}
 }

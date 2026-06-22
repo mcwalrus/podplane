@@ -12,6 +12,7 @@ func NewDraftConfig(providerKind string) *ClusterConfig {
 		providerKind = "aws"
 	}
 	cfg.Cluster.Providers = []Provider{newDraftProvider(providerKind)}
+	cfg.Cluster.Secrets = newDraftSecrets(providerKind)
 	return &cfg
 }
 
@@ -40,6 +41,23 @@ func newDraftProvider(kind string) Provider {
 		}
 	default:
 		return Provider{Kind: kind}
+	}
+}
+
+func newDraftSecrets(providerKind string) Secrets {
+	switch providerKind {
+	case "aws":
+		return Secrets{
+			DefaultProvider: "aws-secrets-manager",
+			Providers: map[string]SecretsProvider{
+				"aws-secrets-manager": {
+					Kind:       "aws",
+					ObjectType: "secretsmanager",
+				},
+			},
+		}
+	default:
+		return Secrets{}
 	}
 }
 

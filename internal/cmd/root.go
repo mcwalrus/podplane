@@ -118,6 +118,9 @@ func NewRootCmd(c *config.Config) *cobra.Command {
 	deployCmd := newDeployCmd(c)
 	deployCmd.GroupID = "dev"
 	rootCmd.AddCommand(deployCmd)
+	secretCmd := newSecretCmd(c)
+	secretCmd.GroupID = "dev"
+	rootCmd.AddCommand(secretCmd)
 	removeCmd := newRemoveCmd(c)
 	removeCmd.GroupID = "dev"
 	rootCmd.AddCommand(removeCmd)

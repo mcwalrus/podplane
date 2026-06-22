@@ -16,14 +16,18 @@ const keyringPrefix = "dev.podplane.fakevault."
 
 // Secret describes one keyring-backed fakevault secret.
 type Secret struct {
-	Path string
-	Keys []string
+	Path     string
+	Keys     []string
+	Archived bool
+	Version  int
 }
 
 // Store persists fakevault secrets.
 type Store interface {
 	SetSecret(clusterID, path string, values map[string]string) error
 	GetSecret(clusterID, path string) (map[string]string, bool, error)
+	ArchiveSecret(clusterID, path string) error
+	RestoreSecret(clusterID, path string) error
 	DeleteSecret(clusterID, path string) error
 	ListSecrets(clusterID string) ([]Secret, error)
 }
@@ -41,8 +45,10 @@ type KeyringStore struct {
 }
 
 type indexEntry struct {
-	Path string   `json:"path"`
-	Keys []string `json:"keys"`
+	Path     string   `json:"path"`
+	Keys     []string `json:"keys"`
+	Archived bool     `json:"archived,omitempty"`
+	Version  int      `json:"version,omitempty"`
 }
 
 // NewKeyringStore returns a keyring-backed fakevault store.
@@ -76,7 +82,11 @@ func (s *KeyringStore) SetSecret(clusterID, path string, values map[string]strin
 	if err != nil {
 		return err
 	}
-	index[encodePath(path)] = indexEntry{Path: path, Keys: sortedKeys(values)}
+	version := index[encodePath(path)].Version + 1
+	if version <= 0 {
+		version = 1
+	}
+	index[encodePath(path)] = indexEntry{Path: path, Keys: sortedKeys(values), Version: version}
 	return s.writeIndex(clusterID, index)
 }
 
@@ -89,6 +99,13 @@ func (s *KeyringStore) GetSecret(clusterID, path string) (map[string]string, boo
 	}
 	if path == "" {
 		return nil, false, fmt.Errorf("secret path is required")
+	}
+	index, err := s.readIndex(clusterID)
+	if err != nil {
+		return nil, false, err
+	}
+	if entry, ok := index[encodePath(path)]; ok && entry.Archived {
+		return nil, false, nil
 	}
 
 	data, err := s.backend.KeyringRead(secretKey(clusterID, path))
@@ -105,7 +122,17 @@ func (s *KeyringStore) GetSecret(clusterID, path string) (map[string]string, boo
 	return values, true, nil
 }
 
-// DeleteSecret removes a fakevault secret for clusterID and path.
+// ArchiveSecret marks a fakevault secret archived without deleting its value.
+func (s *KeyringStore) ArchiveSecret(clusterID, path string) error {
+	return s.setArchived(clusterID, path, true)
+}
+
+// RestoreSecret makes an archived fakevault secret readable again.
+func (s *KeyringStore) RestoreSecret(clusterID, path string) error {
+	return s.setArchived(clusterID, path, false)
+}
+
+// DeleteSecret permanently removes a fakevault secret for clusterID and path.
 func (s *KeyringStore) DeleteSecret(clusterID, path string) error {
 	clusterID = strings.TrimSpace(clusterID)
 	path = CleanPath(path)
@@ -127,6 +154,32 @@ func (s *KeyringStore) DeleteSecret(clusterID, path string) error {
 	return s.writeIndex(clusterID, index)
 }
 
+// setArchived updates the archived flag for a fakevault secret index entry.
+func (s *KeyringStore) setArchived(clusterID, path string, archived bool) error {
+	clusterID = strings.TrimSpace(clusterID)
+	path = CleanPath(path)
+	if clusterID == "" {
+		return fmt.Errorf("cluster ID is required")
+	}
+	if path == "" {
+		return fmt.Errorf("secret path is required")
+	}
+	index, err := s.readIndex(clusterID)
+	if err != nil {
+		return err
+	}
+	entry, ok := index[encodePath(path)]
+	if !ok {
+		return nil
+	}
+	entry.Archived = archived
+	if entry.Version <= 0 {
+		entry.Version = 1
+	}
+	index[encodePath(path)] = entry
+	return s.writeIndex(clusterID, index)
+}
+
 // ListSecrets lists fakevault secrets for clusterID.
 func (s *KeyringStore) ListSecrets(clusterID string) ([]Secret, error) {
 	clusterID = strings.TrimSpace(clusterID)
@@ -141,7 +194,11 @@ func (s *KeyringStore) ListSecrets(clusterID string) ([]Secret, error) {
 	for _, entry := range index {
 		keys := append([]string{}, entry.Keys...)
 		sort.Strings(keys)
-		secrets = append(secrets, Secret{Path: entry.Path, Keys: keys})
+		version := entry.Version
+		if version <= 0 {
+			version = 1
+		}
+		secrets = append(secrets, Secret{Path: entry.Path, Keys: keys, Archived: entry.Archived, Version: version})
 	}
 	sort.Slice(secrets, func(i, j int) bool {
 		return secrets[i].Path < secrets[j].Path

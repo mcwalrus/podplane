@@ -8,9 +8,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/podplane/podplane/internal/clusterconfig"
 	"github.com/podplane/podplane/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -83,6 +85,50 @@ func TestClusterDeleteNoApplyValidatesOnly(t *testing.T) {
 	cmd.SetArgs([]string{"--cluster-config", path, "--no-apply"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("cluster delete --no-apply returned error: %v", err)
+	}
+}
+
+func TestDeploySecretSetArgsUseSecretProviderBindingItems(t *testing.T) {
+	summary := config.ClusterSummary{
+		ID: "test-cluster",
+		Secrets: clusterconfig.Secrets{
+			DefaultProvider: "aws-secrets-manager",
+			Providers: map[string]clusterconfig.SecretsProvider{
+				"aws-secrets-manager": {Kind: "aws", ObjectType: "secretsmanager"},
+			},
+		},
+	}
+
+	got, err := deploySecretSetArgs(summary, "aok-source-controller", []string{"github-private-key", "webhook-secret"})
+	if err != nil {
+		t.Fatalf("deploySecretSetArgs error = %v", err)
+	}
+	want := []string{
+		"secrets[0].bindingName=aok-source-controller",
+		"secrets[0].providerName=aws-secrets-manager",
+		"secrets[0].mountPath=/var/run/podplane/secrets",
+		"secrets[0].items[0].key=github-private-key",
+		"secrets[0].items[1].key=webhook-secret",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("deploySecretSetArgs = %#v, want %#v", got, want)
+	}
+}
+
+func TestDeploySecretSetArgsRequiresDefaultProvider(t *testing.T) {
+	_, err := deploySecretSetArgs(config.ClusterSummary{ID: "test-cluster"}, "app", []string{"github-private-key"})
+	if err == nil || !strings.Contains(err.Error(), "default secrets provider") {
+		t.Fatalf("deploySecretSetArgs error = %v, want default provider error", err)
+	}
+}
+
+func TestSecretCommandUsesSingularName(t *testing.T) {
+	cmd := newSecretCmd(&config.Config{})
+	if got, want := cmd.Name(), "secret"; got != want {
+		t.Fatalf("secret command name = %q, want %q", got, want)
+	}
+	if got, want := cmd.Short, "Manage application secrets"; got != want {
+		t.Fatalf("secret command short = %q, want %q", got, want)
 	}
 }
 

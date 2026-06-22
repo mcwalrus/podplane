@@ -49,7 +49,7 @@ func init() {
 	depsDownloadCmd.Flags().StringVar(&depsDownloadArchs, "arch", "",
 		"Comma-separated target architectures to download (amd64,arm64). Defaults to the configured architecture")
 	depsDownloadCmd.Flags().StringVar(&depsDownloadProviders, "providers", "",
-		"Comma-separated provider-specific dependencies and component images to include (for example aws,google), or all")
+		"Comma-separated provider-specific dependencies and component images to include (for example aws,google,proxmox), or all")
 	depsDownloadCmd.Flags().StringVar(&depsDownloadAddons, "addons", "",
 		"Comma-separated addon component images to include in addition to the recommended addons, or all")
 	depsDownloadCmd.Flags().StringVarP(&depsDownloadClusterConfig, "cluster-config", "f", "",
@@ -83,6 +83,7 @@ func newDepsDownloadCmd(manager *deps.Manager, kind, arch string) *cobra.Command
 			for _, domain := range cfg.Cluster.Domains {
 				providers = append(providers, domain.Provider.Kind)
 			}
+			providers = append(providers, inferredSecretsProviders(providers)...)
 		}
 
 		if depsDownloadDryRun {
@@ -135,4 +136,32 @@ func newDepsDownloadCmd(manager *deps.Manager, kind, arch string) *cobra.Command
 	}
 
 	return depsDownloadCmd
+}
+
+// inferredSecretsProviders returns secrets provider component selectors implied by infra provider selectors.
+func inferredSecretsProviders(providers []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, value := range providers {
+		for _, provider := range strings.Split(value, ",") {
+			switch strings.ToLower(strings.TrimSpace(provider)) {
+			case "aws":
+				if !seen["aws"] {
+					seen["aws"] = true
+					out = append(out, "aws")
+				}
+			case "gcp", "google":
+				if !seen["gcp"] {
+					seen["gcp"] = true
+					out = append(out, "gcp")
+				}
+			case "proxmox":
+				if !seen["openbao"] {
+					seen["openbao"] = true
+					out = append(out, "openbao")
+				}
+			}
+		}
+	}
+	return out
 }

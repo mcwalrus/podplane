@@ -46,6 +46,31 @@ func TestBuildPlatformComponentsValuesAWSProviderEnablesEBSCSI(t *testing.T) {
 	}
 }
 
+func TestBuildPlatformComponentsValuesSecretsProvidersEnableCSIComponents(t *testing.T) {
+	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
+		Secrets: clusterconfig.Secrets{Providers: map[string]clusterconfig.SecretsProvider{
+			"aws-secrets-manager": {Kind: "aws", ObjectType: "secretsmanager"},
+			"local-fakevault":     {Kind: "openbao"},
+		}},
+	}}
+	values, err := buildPlatformComponentsValues(cfg)
+	if err != nil {
+		t.Fatalf("buildPlatformComponentsValues error = %v", err)
+	}
+	components := values["platform"].(map[string]any)["components"].(map[string]any)
+	apps := components["apps"].(map[string]any)
+	for _, name := range []string{
+		"secrets-store-csi-driver",
+		"secrets-store-csi-driver-provider-aws",
+		"secrets-store-csi-driver-provider-openbao",
+	} {
+		app := apps[name].(map[string]any)
+		if got, want := app["enabled"], true; got != want {
+			t.Fatalf("apps.%s.enabled = %v, want %v", name, got, want)
+		}
+	}
+}
+
 func TestBuildPlatformComponentsValuesRegistryMirror(t *testing.T) {
 	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
 		Components: clusterconfig.Components{

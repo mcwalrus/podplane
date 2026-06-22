@@ -17,6 +17,7 @@ type ClusterSummary struct {
 	Name       string                          `mapstructure:"name" json:"name"`
 	OIDC       clusterconfig.OIDC              `mapstructure:"oidc" json:"oidc"`
 	Kubernetes clusterconfig.Kubernetes        `mapstructure:"kubernetes" json:"kubernetes"`
+	Secrets    clusterconfig.Secrets           `mapstructure:"secrets" json:"secrets,omitempty"`
 	Components ClusterSummaryClusterComponents `mapstructure:"components" json:"components,omitempty"`
 }
 
@@ -34,10 +35,28 @@ func ClusterSummaryFromConfig(cluster *clusterconfig.ClusterConfig) ClusterSumma
 		Name:       cluster.Cluster.Name,
 		OIDC:       cluster.Cluster.OIDC,
 		Kubernetes: cluster.Cluster.Kubernetes,
+		Secrets:    secretsSummary(cluster.Cluster.Secrets),
 		Components: ClusterSummaryClusterComponents{
 			Registry: cluster.Cluster.Components.Registry,
 		},
 	}
+}
+
+// secretsSummary returns only the secrets provider fields needed by cached CLI commands.
+func secretsSummary(secrets clusterconfig.Secrets) clusterconfig.Secrets {
+	if len(secrets.Providers) == 0 {
+		return clusterconfig.Secrets{DefaultProvider: secrets.DefaultProvider}
+	}
+	out := clusterconfig.Secrets{
+		DefaultProvider: secrets.DefaultProvider,
+		Providers:       make(map[string]clusterconfig.SecretsProvider, len(secrets.Providers)),
+	}
+	for name, provider := range secrets.Providers {
+		out.Providers[name] = clusterconfig.SecretsProvider{
+			Kind: provider.Kind,
+		}
+	}
+	return out
 }
 
 // clusterSummaryKey returns the config map key for a cached cluster summary.
@@ -69,11 +88,15 @@ func (c *Config) SetClusterSummary(summary ClusterSummary, local bool) error {
 	if summary.ID == "" {
 		return fmt.Errorf("SetClusterSummary: cluster.id is required")
 	}
+	summary.Secrets = secretsSummary(summary.Secrets)
 	cluster := map[string]any{
 		"id":         summary.ID,
 		"name":       summary.Name,
 		"oidc":       summary.OIDC,
 		"kubernetes": summary.Kubernetes,
+	}
+	if len(summary.Secrets.Providers) > 0 || summary.Secrets.DefaultProvider != "" {
+		cluster["secrets"] = summary.Secrets
 	}
 	if summary.Components.Registry != nil {
 		cluster["components"] = map[string]any{

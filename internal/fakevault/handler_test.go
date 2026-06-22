@@ -17,7 +17,8 @@ import (
 )
 
 type memoryStore struct {
-	secrets map[string]map[string]string
+	secrets  map[string]map[string]string
+	archived map[string]bool
 }
 
 // rejectToken always rejects login JWTs for handler tests.
@@ -30,19 +31,42 @@ func (s *memoryStore) SetSecret(clusterID, path string, values map[string]string
 	if s.secrets == nil {
 		s.secrets = map[string]map[string]string{}
 	}
-	s.secrets[clusterID+":"+CleanPath(path)] = values
+	key := clusterID + ":" + CleanPath(path)
+	s.secrets[key] = values
+	delete(s.archived, key)
 	return nil
 }
 
 // GetSecret returns a fakevault secret from memory for handler tests.
 func (s *memoryStore) GetSecret(clusterID, path string) (map[string]string, bool, error) {
-	values, ok := s.secrets[clusterID+":"+CleanPath(path)]
+	key := clusterID + ":" + CleanPath(path)
+	if s.archived[key] {
+		return nil, false, nil
+	}
+	values, ok := s.secrets[key]
 	return values, ok, nil
+}
+
+// ArchiveSecret archives a fakevault secret in memory for handler tests.
+func (s *memoryStore) ArchiveSecret(clusterID, path string) error {
+	if s.archived == nil {
+		s.archived = map[string]bool{}
+	}
+	s.archived[clusterID+":"+CleanPath(path)] = true
+	return nil
+}
+
+// RestoreSecret restores an archived fakevault secret in memory for handler tests.
+func (s *memoryStore) RestoreSecret(clusterID, path string) error {
+	delete(s.archived, clusterID+":"+CleanPath(path))
+	return nil
 }
 
 // DeleteSecret removes a fakevault secret from memory for handler tests.
 func (s *memoryStore) DeleteSecret(clusterID, path string) error {
-	delete(s.secrets, clusterID+":"+CleanPath(path))
+	key := clusterID + ":" + CleanPath(path)
+	delete(s.secrets, key)
+	delete(s.archived, key)
 	return nil
 }
 
@@ -54,7 +78,7 @@ func (s *memoryStore) ListSecrets(clusterID string) ([]Secret, error) {
 		if !ok || entryClusterID != clusterID {
 			continue
 		}
-		secrets = append(secrets, Secret{Path: path, Keys: sortedKeys(values)})
+		secrets = append(secrets, Secret{Path: path, Keys: sortedKeys(values), Archived: s.archived[key], Version: 1})
 	}
 	sort.Slice(secrets, func(i, j int) bool { return secrets[i].Path < secrets[j].Path })
 	return secrets, nil

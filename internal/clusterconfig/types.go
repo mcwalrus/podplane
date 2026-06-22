@@ -25,9 +25,37 @@ type Cluster struct {
 	Domains    []Domain        `json:"domains,omitempty"`
 	Pools      map[string]Pool `json:"pools,omitempty"`
 	Providers  []Provider      `json:"providers,omitempty"`
+	Secrets    Secrets         `json:"secrets,omitempty"`
 	Kubernetes Kubernetes      `json:"kubernetes"`
 	Seed       Seed            `json:"seed,omitempty"`
 	Components Components      `json:"components,omitempty"`
+}
+
+// Secrets describes Podplane Secrets provider selection. Only safe provider
+// metadata belongs here; backend credentials are configured on the operator.
+type Secrets struct {
+	DefaultProvider string                     `json:"default_provider,omitempty"`
+	Providers       map[string]SecretsProvider `json:"providers,omitempty"`
+}
+
+// SecretsProvider is one named Podplane Secrets backend exposed to templates
+// and CLI commands. Kind matches the upstream Secrets Store CSI provider slug.
+type SecretsProvider struct {
+	Kind string `json:"kind"`
+
+	// AWS ObjectType is the Secrets Store CSI AWS objectType value, such as
+	// "secretsmanager" or "ssmparameter".
+	ObjectType string `json:"object_type,omitempty"`
+	Region     string `json:"region,omitempty"`
+
+	// GCP fields.
+	ProjectID string `json:"project_id,omitempty"`
+	Location  string `json:"location,omitempty"`
+
+	// Vault/OpenBao fields for operator/runtime configuration. These
+	// fields are not persisted in cached cluster summaries.
+	Address   string `json:"address,omitempty"`
+	MountPath string `json:"mount_path,omitempty"`
 }
 
 // Seed describes the Podplane seed file used to create the initial Netsy snapshot.

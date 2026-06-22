@@ -36,6 +36,7 @@ These options are available on all commands:
 
 - [podplane deploy](deploy.md) – Deploy an app using a template.
 - [podplane remove](remove.md) – Remove a previously deployed app.
+- [podplane secret](secret.md) – Manage application secrets through the Podplane operator.
 - [podplane logs](logs.md) – Tail logs for a deployed app.
 
 ## Component Commands

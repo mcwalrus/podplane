@@ -61,6 +61,16 @@ func (h *handler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		h.serveMount(rw, r)
 		return
 	}
+	if r.Method == http.MethodPost || r.Method == http.MethodPut {
+		if path, ok := undeleteDataPath(apiPath); ok {
+			h.serveUndelete(rw, r, clusterID, path)
+			return
+		}
+		if path, ok := destroyDataPath(apiPath); ok {
+			h.serveDestroy(rw, r, clusterID, path)
+			return
+		}
+	}
 	h.serveKV(rw, r, clusterID, apiPath)
 }
 
@@ -157,6 +167,10 @@ func (h *handler) serveKV(rw http.ResponseWriter, r *http.Request, clusterID, ap
 
 // serveRead returns a KV-v2 shaped secret response.
 func (h *handler) serveRead(rw http.ResponseWriter, clusterID, apiPath string) {
+	if path, ok := metadataDataPath(apiPath); ok {
+		h.serveMetadata(rw, clusterID, path)
+		return
+	}
 	path, ok := dataPath(apiPath)
 	if !ok {
 		errorResponse(rw, http.StatusNotFound, "not found")
@@ -175,7 +189,7 @@ func (h *handler) serveRead(rw http.ResponseWriter, clusterID, apiPath string) {
 		"data": map[string]any{
 			"data": values,
 			"metadata": map[string]any{
-				"version": 1,
+				"version": secretVersion(clusterID, path, h.store),
 			},
 		},
 	})
@@ -219,22 +233,27 @@ func (h *handler) serveWrite(rw http.ResponseWriter, r *http.Request, clusterID,
 	}
 	jsonResponse(rw, http.StatusOK, map[string]any{
 		"data": map[string]any{
-			"version": 1,
+			"version": secretVersion(clusterID, path, h.store),
 		},
 	})
 }
 
-// serveDelete deletes a KV-v2 secret data or metadata path.
+// serveDelete soft-deletes a KV-v2 data path or permanently deletes metadata.
 func (h *handler) serveDelete(rw http.ResponseWriter, clusterID, apiPath string) {
-	path, ok := dataPath(apiPath)
-	if !ok {
-		path, ok = metadataDataPath(apiPath)
+	if path, ok := metadataDataPath(apiPath); ok {
+		if err := h.store.DeleteSecret(clusterID, path); err != nil {
+			errorResponse(rw, http.StatusInternalServerError, err.Error())
+			return
+		}
+		jsonResponse(rw, http.StatusNoContent, nil)
+		return
 	}
+	path, ok := dataPath(apiPath)
 	if !ok {
 		errorResponse(rw, http.StatusNotFound, "not found")
 		return
 	}
-	if err := h.store.DeleteSecret(clusterID, path); err != nil {
+	if err := h.store.ArchiveSecret(clusterID, path); err != nil {
 		errorResponse(rw, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -280,6 +299,80 @@ func (h *handler) serveList(rw http.ResponseWriter, clusterID, apiPath string) {
 	}
 	sort.Strings(list)
 	jsonResponse(rw, http.StatusOK, map[string]any{"data": map[string]any{"keys": list}})
+}
+
+// serveMetadata returns enough KV-v2 metadata for adapters to detect archived state.
+func (h *handler) serveMetadata(rw http.ResponseWriter, clusterID, path string) {
+	secrets, err := h.store.ListSecrets(clusterID)
+	if err != nil {
+		errorResponse(rw, http.StatusInternalServerError, err.Error())
+		return
+	}
+	path = strings.Trim(path, "/")
+	for _, secret := range secrets {
+		if strings.Trim(secret.Path, "/") != path {
+			continue
+		}
+		version := secret.Version
+		if version <= 0 {
+			version = 1
+		}
+		deletedAt := ""
+		if secret.Archived {
+			deletedAt = time.Now().UTC().Format(time.RFC3339)
+		}
+		jsonResponse(rw, http.StatusOK, map[string]any{"data": map[string]any{
+			"current_version": version,
+			"versions": map[string]any{
+				fmt.Sprint(version): map[string]any{"deletion_time": deletedAt, "destroyed": false},
+			},
+		}})
+		return
+	}
+	errorResponse(rw, http.StatusNotFound, "secret not found")
+}
+
+// serveUndelete restores an archived KV-v2 data path.
+func (h *handler) serveUndelete(rw http.ResponseWriter, r *http.Request, clusterID, path string) {
+	entry, ok := h.authenticate(r.Header.Get("X-Vault-Token"), clusterID)
+	if !ok {
+		errorResponse(rw, http.StatusForbidden, "permission denied")
+		return
+	}
+	if err := h.store.RestoreSecret(entry.ClusterID, path); err != nil {
+		errorResponse(rw, http.StatusInternalServerError, err.Error())
+		return
+	}
+	jsonResponse(rw, http.StatusNoContent, nil)
+}
+
+// serveDestroy permanently deletes a KV-v2 data path.
+func (h *handler) serveDestroy(rw http.ResponseWriter, r *http.Request, clusterID, path string) {
+	entry, ok := h.authenticate(r.Header.Get("X-Vault-Token"), clusterID)
+	if !ok {
+		errorResponse(rw, http.StatusForbidden, "permission denied")
+		return
+	}
+	if err := h.store.DeleteSecret(entry.ClusterID, path); err != nil {
+		errorResponse(rw, http.StatusInternalServerError, err.Error())
+		return
+	}
+	jsonResponse(rw, http.StatusNoContent, nil)
+}
+
+// secretVersion returns the stored version for path, defaulting to one when unknown.
+func secretVersion(clusterID, path string, store Store) int {
+	secrets, err := store.ListSecrets(clusterID)
+	if err != nil {
+		return 1
+	}
+	path = strings.Trim(path, "/")
+	for _, secret := range secrets {
+		if strings.Trim(secret.Path, "/") == path && secret.Version > 0 {
+			return secret.Version
+		}
+	}
+	return 1
 }
 
 // authenticate returns a token entry only when it is scoped to clusterID.
@@ -346,6 +439,24 @@ func metadataDataPath(apiPath string) (string, bool) {
 		path += "/" + parts[2]
 	}
 	return path, true
+}
+
+// undeleteDataPath returns the stored path for a KV-v2 undelete API path.
+func undeleteDataPath(apiPath string) (string, bool) {
+	parts := strings.SplitN(strings.Trim(apiPath, "/"), "/", 3)
+	if len(parts) != 3 || parts[1] != "undelete" || parts[2] == "" {
+		return "", false
+	}
+	return parts[0] + "/data/" + parts[2], true
+}
+
+// destroyDataPath returns the stored path for a KV-v2 destroy API path.
+func destroyDataPath(apiPath string) (string, bool) {
+	parts := strings.SplitN(strings.Trim(apiPath, "/"), "/", 3)
+	if len(parts) != 3 || parts[1] != "destroy" || parts[2] == "" {
+		return "", false
+	}
+	return parts[0] + "/data/" + parts[2], true
 }
 
 // randomToken returns an opaque fakevault client token.
