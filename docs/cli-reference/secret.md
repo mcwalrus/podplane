@@ -33,6 +33,12 @@ Most clusters have one default secrets provider, so you usually do not need to
 pass `--provider`. Use it only when the cluster has multiple configured secrets
 providers and you want a non-default one.
 
+When a cluster uses Podplane's default Secrets Store CSI admission policy,
+workloads that mount a `SecretProviderClass` must set an explicit, non-empty
+`spec.serviceAccountName`, and the mounted `secretProviderClass` must match that
+service account name. Pods that omit `serviceAccountName` are rejected by the
+policy.
+
 ## Examples
 
 Prompt for a value interactively:
@@ -130,6 +136,7 @@ Secret commands use the secrets providers configured for the cluster. In
       "providers": {
         "aws-secrets-manager": {
           "kind": "aws",
+          "key_prefix": "shared-secrets",
           "object_type": "secretsmanager"
         }
       }
@@ -139,4 +146,5 @@ Secret commands use the secrets providers configured for the cluster. In
 ```
 
 Only provider names and non-secret provider-selection metadata belong in the
-cluster config. Credentials are configured separately by the operator deployment.
+cluster config. `key_prefix` is optional per provider and defaults to
+`cluster.id`. Credentials are configured separately by the operator deployment.

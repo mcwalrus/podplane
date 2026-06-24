@@ -69,6 +69,7 @@ func TestClusterSummaryFromConfigStripsSecretsProviderDetails(t *testing.T) {
 			Providers: map[string]clusterconfig.SecretsProvider{
 				"aws-secrets-manager": {
 					Kind:       "aws",
+					KeyPrefix:  "shared-secrets",
 					ObjectType: "secretsmanager",
 					Region:     "us-east-1",
 				},
@@ -84,7 +85,7 @@ func TestClusterSummaryFromConfigStripsSecretsProviderDetails(t *testing.T) {
 	if got, want := provider.Kind, "aws"; got != want {
 		t.Fatalf("provider kind = %q, want %q", got, want)
 	}
-	if provider.ObjectType != "" || provider.Region != "" || provider.ProjectID != "" || provider.Location != "" || provider.Address != "" || provider.MountPath != "" {
+	if provider.KeyPrefix != "" || provider.ObjectType != "" || provider.Region != "" || provider.ProjectID != "" || provider.Location != "" || provider.Address != "" || provider.MountPath != "" {
 		t.Fatalf("provider details persisted in summary: %#v", provider)
 	}
 }

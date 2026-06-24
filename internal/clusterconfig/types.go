@@ -43,6 +43,10 @@ type Secrets struct {
 type SecretsProvider struct {
 	Kind string `json:"kind"`
 
+	// KeyPrefix partitions backend keys for this provider. Defaults to the
+	// cluster ID when omitted.
+	KeyPrefix string `json:"key_prefix,omitempty"`
+
 	// AWS ObjectType is the Secrets Store CSI AWS objectType value, such as
 	// "secretsmanager" or "ssmparameter".
 	ObjectType string `json:"object_type,omitempty"`

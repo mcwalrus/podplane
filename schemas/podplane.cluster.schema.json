@@ -232,6 +232,12 @@
           "enum": ["aws", "gcp", "vault", "openbao"],
           "description": "Upstream Secrets Store CSI provider slug."
         },
+        "key_prefix": {
+          "type": "string",
+          "maxLength": 32,
+          "pattern": "^(?!.*--)[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+          "description": "Optional backend key prefix for this provider. Defaults to cluster.id."
+        },
         "object_type": {
           "type": "string",
           "enum": ["secretsmanager", "ssmparameter"],

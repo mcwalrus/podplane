@@ -48,8 +48,9 @@ func TestBuildPlatformComponentsValuesAWSProviderEnablesEBSCSI(t *testing.T) {
 
 func TestBuildPlatformComponentsValuesSecretsProvidersEnableCSIComponents(t *testing.T) {
 	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
+		ID: "test-cluster",
 		Secrets: clusterconfig.Secrets{Providers: map[string]clusterconfig.SecretsProvider{
-			"aws-secrets-manager": {Kind: "aws", ObjectType: "secretsmanager"},
+			"aws-secrets-manager": {Kind: "aws", KeyPrefix: "shared-secrets", ObjectType: "secretsmanager"},
 			"local-fakevault":     {Kind: "openbao"},
 		}},
 	}}
@@ -60,6 +61,7 @@ func TestBuildPlatformComponentsValuesSecretsProvidersEnableCSIComponents(t *tes
 	components := values["platform"].(map[string]any)["components"].(map[string]any)
 	apps := components["apps"].(map[string]any)
 	for _, name := range []string{
+		"podplane-operator",
 		"secrets-store-csi-driver",
 		"secrets-store-csi-driver-provider-aws",
 		"secrets-store-csi-driver-provider-openbao",
@@ -68,6 +70,15 @@ func TestBuildPlatformComponentsValuesSecretsProvidersEnableCSIComponents(t *tes
 		if got, want := app["enabled"], true; got != want {
 			t.Fatalf("apps.%s.enabled = %v, want %v", name, got, want)
 		}
+	}
+	if got, want := components["clusterID"], "test-cluster"; got != want {
+		t.Fatalf("clusterID = %v, want %v", got, want)
+	}
+	secrets := components["secrets"].(map[string]any)
+	providers := secrets["providers"].(map[string]any)
+	provider := providers["aws-secrets-manager"].(map[string]any)
+	if got, want := provider["keyPrefix"], "shared-secrets"; got != want {
+		t.Fatalf("provider keyPrefix = %v, want %v", got, want)
 	}
 }
 

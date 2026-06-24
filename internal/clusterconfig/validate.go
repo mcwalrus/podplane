@@ -89,6 +89,11 @@ func ValidateSecrets(secrets Secrets) error {
 		if err := validateSecretsProviderName(prefix, name); err != nil {
 			return err
 		}
+		if provider.KeyPrefix != "" {
+			if err := validateSecretsProviderName(prefix+".key_prefix", provider.KeyPrefix); err != nil {
+				return err
+			}
+		}
 		switch provider.Kind {
 		case "aws":
 			if provider.ObjectType != "secretsmanager" && provider.ObjectType != "ssmparameter" {

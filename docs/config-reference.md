@@ -186,6 +186,7 @@ For the operational impact of changing cluster fields after initial deployment, 
 | `cluster.secrets.default_provider` | Default secrets provider name used by `podplane secret` and templates when `--provider` is omitted. |
 | `cluster.secrets.providers` | Named secrets providers. Only provider-selection metadata belongs here; credentials are configured on the operator deployment. |
 | `cluster.secrets.providers.<name>.kind` | Secrets provider kind, such as `aws`, `gcp`, or `openbao`. |
+| `cluster.secrets.providers.<name>.key_prefix` | Optional backend key prefix for this provider. Defaults to `cluster.id`; set it only when clusters should intentionally share a provider backend prefix. |
 | `cluster.secrets.providers.<name>.object_type` | AWS Secrets Store CSI object type, such as `secretsmanager` or `ssmparameter`. |
 | `cluster.kubernetes.api_hostname` | External hostname for the kube-apiserver (defaults to `k8s.<first domain zone>`) |
 | `cluster.kubernetes.api_port` | Port for the kube-apiserver (default: `6443`) |

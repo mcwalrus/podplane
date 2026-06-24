@@ -33,7 +33,7 @@ func buildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig) (map[string
 		applyRegistryMirror(components, cfg.Cluster.Components.Registry.Mirror)
 	}
 	applyProviderComponents(components, cfg.Cluster.Providers)
-	applySecretsComponents(components, cfg.Cluster.Secrets.Providers)
+	applySecretsComponents(components, cfg.Cluster.ID, cfg.Cluster.Secrets)
 	if len(cfg.Cluster.Domains) == 0 {
 		return values, nil
 	}
@@ -114,15 +114,19 @@ func applyProviderComponents(components map[string]any, providers []clusterconfi
 	}
 }
 
-// applySecretsComponents enables Secrets Store CSI Driver and provider
-// components required by configured Podplane Secrets providers.
-func applySecretsComponents(components map[string]any, providers map[string]clusterconfig.SecretsProvider) {
-	if len(providers) == 0 {
+// applySecretsComponents enables Secrets Store CSI Driver, provider components,
+// and Podplane operator provider configuration required by configured Podplane
+// Secrets providers.
+func applySecretsComponents(components map[string]any, clusterID string, secrets clusterconfig.Secrets) {
+	if len(secrets.Providers) == 0 {
 		return
 	}
+	components["clusterID"] = clusterID
+	components["secrets"] = secretsValues(secrets)
 	apps := ensureChildMap(components, "apps")
+	apps["podplane-operator"] = map[string]any{"enabled": true}
 	apps["secrets-store-csi-driver"] = map[string]any{"enabled": true}
-	for _, provider := range providers {
+	for _, provider := range secrets.Providers {
 		switch provider.Kind {
 		case "aws":
 			apps["secrets-store-csi-driver-provider-aws"] = map[string]any{"enabled": true}
@@ -133,6 +137,36 @@ func applySecretsComponents(components map[string]any, providers map[string]clus
 		case "openbao":
 			apps["secrets-store-csi-driver-provider-openbao"] = map[string]any{"enabled": true}
 		}
+	}
+}
+
+// secretsValues converts cluster secrets config to platform-components values.
+func secretsValues(secrets clusterconfig.Secrets) map[string]any {
+	providers := make(map[string]any, len(secrets.Providers))
+	names := make([]string, 0, len(secrets.Providers))
+	for name := range secrets.Providers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		provider := secrets.Providers[name]
+		entry := map[string]any{"kind": provider.Kind}
+		setIfNotEmpty(entry, "keyPrefix", provider.KeyPrefix)
+		setIfNotEmpty(entry, "objectType", provider.ObjectType)
+		setIfNotEmpty(entry, "region", provider.Region)
+		setIfNotEmpty(entry, "projectID", provider.ProjectID)
+		setIfNotEmpty(entry, "location", provider.Location)
+		setIfNotEmpty(entry, "address", provider.Address)
+		setIfNotEmpty(entry, "mountPath", provider.MountPath)
+		providers[name] = entry
+	}
+	return map[string]any{"providers": providers}
+}
+
+// setIfNotEmpty stores a string value in m when value is not empty.
+func setIfNotEmpty(m map[string]any, key, value string) {
+	if value != "" {
+		m[key] = value
 	}
 }
 

@@ -33,6 +33,8 @@ The steps for deploying a Pod with a secret are:
  
     - Secrets Store CSI Driver will handle mounting the secret per the `SecretProviderClass`
 
+4. Ensure your Pod has an explict `serviceAccountName` (`default` will not work)
+
 ## Secrets Provider Backend Paths
 
 Podplane stores secrets provider values under a stable namespace and binding boundary called a "keyspace":
@@ -65,6 +67,8 @@ The operator syncs/reconciles each `SecretProviderBinding` into a `SecretProvide
 
 The reason this abstraction exists is that it provides a convention-based approach to securing secrets leveraging standard Kubernetes RBAC and namespace primitives. By creating a layer above Secrets Store CSI Driver, it enables a provider-backed Kubernetes secrets pattern without impeding the use of more powerful Secrets Store CSI Driver features if a cluster operator chooses to enable access to those via RBAC control.
 
+By default, Podplane's operator chart installs a Kubernetes `ValidatingAdmissionPolicy` for Pods that use Secrets Store CSI volumes. Those Pods must set an explicit, non-empty `spec.serviceAccountName`, and every Secrets Store CSI volume on the Pod must reference a `secretProviderClass` with the same name as that service account. Pods that omit `serviceAccountName` are rejected instead of falling back to Kubernetes' `default` service account for this policy.
+
 ## Kubernetes Secrets Sync
 
 The aim of the Podplane Secrets system design is to avoid persisting provider secret values into Kubernetes Secrets, as it greatly increases the attack surface for these sensitive values. Instead, workloads mount values directly from the secrets provider through the Secrets Store CSI driver.
@@ -75,7 +79,7 @@ This is useful for controllers or applications that only know how to read Kubern
 
 ```json
 {
-  "allowSyncToKubernetesSecrets": true
+  "allow_sync_to_kubernetes_secrets": true
 }
 ```
 
@@ -103,6 +107,7 @@ In `podplane.cluster.jsonc`, secrets provider metadata lives under `cluster.secr
       "providers": {
         "aws-secrets-manager": {
           "kind": "aws",
+          "key_prefix": "shared-secrets",
           "object_type": "secretsmanager"
         }
       }
@@ -111,7 +116,7 @@ In `podplane.cluster.jsonc`, secrets provider metadata lives under `cluster.secr
 }
 ```
 
-Operators should grant RBAC to the Podplane aggregated secrets API deliberately. Normal Kubernetes authorization controls who can read key metadata, create new values, overwrite existing values, restore archived values, and permanently destroy provider data.
+`key_prefix` is optional per provider and defaults to `cluster.id`; set it when multiple clusters should intentionally share a backend prefix for that provider, for example. Operators should grant RBAC to the Podplane aggregated secrets API deliberately. Normal Kubernetes authorization controls who can read key metadata, create new values, overwrite existing values, restore archived values, and permanently destroy provider data.
 
 ## Learn More
 
