@@ -58,9 +58,13 @@ make git-sync
 DOMAIN=default.localhost make recommended
 ```
 
-`make recommended` reads `podplane local status --json` to discover the local
-VM HTTPS Git URL and Flux `secretRef` name. It expects `make git-sync` to have
-created `~/.podplane/cache/deps/git/components.git` on the `local-dev` branch.
+The components repo provides three local bootstrap paths: `make minimal`, 
+`make recommended`, and `make all`. Each reads `podplane local status --json` to
+discover the local VM HTTPS Git URL and Flux `secretRef` name, and expects
+`make git-sync` to have created `~/.podplane/cache/deps/git/components.git` on
+the `local-dev` branch. Use `make recommended` when generating a new seed 
+snapshot, `make minimal` for internal development and testing, and `make all` 
+when testing additional addons.
 
 In a second terminal, run the vmconfig watch loop from the `vmconfig` repository:
 

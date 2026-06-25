@@ -726,11 +726,12 @@ func localComponentsSource(depsManager *deps.Manager, seed clusterconfig.Seed, n
 	}
 	if manifest.Components.Source != nil {
 		source := manifest.Components.Source
+		ref := localClusterComponentsSourceRef(source.Ref, manifest.Components.Version)
 		if repoPath, err := deps.GitCacheRepoPath(source.URL); err == nil {
 			if _, statErr := os.Stat(filepath.Join(depsManager.GitCachePath(repoPath), "config")); statErr == nil {
 				return &clusterconfig.ComponentsSource{
 					URL:       localGitURL(nodeIP, repoPath),
-					Ref:       clusterconfig.ComponentsSourceRef{Branch: source.Ref.Branch, Tag: source.Ref.Tag, Semver: source.Ref.Semver, Commit: source.Ref.Commit},
+					Ref:       ref,
 					SecretRef: &clusterconfig.ComponentsSourceSecretRef{Name: localComponentsGitSecretName},
 				}, nil
 			} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
@@ -739,7 +740,7 @@ func localComponentsSource(depsManager *deps.Manager, seed clusterconfig.Seed, n
 		}
 		return &clusterconfig.ComponentsSource{
 			URL: source.URL,
-			Ref: clusterconfig.ComponentsSourceRef{Branch: source.Ref.Branch, Tag: source.Ref.Tag, Semver: source.Ref.Semver, Commit: source.Ref.Commit},
+			Ref: ref,
 		}, nil
 	}
 	if manifest.Components.Version == "dev" {
@@ -755,6 +756,17 @@ func localComponentsSource(depsManager *deps.Manager, seed clusterconfig.Seed, n
 		URL: "https://github.com/podplane/components.git",
 		Ref: clusterconfig.ComponentsSourceRef{Semver: "^" + manifest.Components.Version},
 	}, nil
+}
+
+// localClusterComponentsSourceRef converts the manifest source ref into the
+// ref Podplane should write into cluster config for Flux.
+// Released manifest versions are converted to caret semver ranges.
+func localClusterComponentsSourceRef(ref deps.ComponentsSourceRef, version string) clusterconfig.ComponentsSourceRef {
+	clusterRef := clusterconfig.ComponentsSourceRef{Branch: ref.Branch, Tag: ref.Tag, Semver: ref.Semver, Commit: ref.Commit}
+	if version != "" && version != "dev" {
+		clusterRef = clusterconfig.ComponentsSourceRef{Semver: "^" + version}
+	}
+	return clusterRef
 }
 
 func localRegistryHostname(clusterID string) string {

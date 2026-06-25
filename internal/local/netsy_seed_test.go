@@ -52,7 +52,7 @@ func TestLocalComponentsSourceUsesBranchForDevManifest(t *testing.T) {
 // components manifests keep using matching semver selectors for reproducibility.
 func TestLocalComponentsSourceUsesSemverForReleasedManifest(t *testing.T) {
 	manager := deps.NewManager("https://example.invalid", t.TempDir())
-	if err := manager.WriteCachedComponentsManifest([]byte(`{"components":{"version":"1.2.1"}}`)); err != nil {
+	if err := manager.WriteCachedComponentsManifest([]byte(`{"components":{"version":"1.2.1","source":{"url":"https://github.com/podplane/components.git","ref":{"tag":"v1.2.1"}}}}`)); err != nil {
 		t.Fatalf("WriteCachedComponentsManifest: %v", err)
 	}
 
