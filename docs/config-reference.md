@@ -120,7 +120,7 @@ New cluster configs include a relative `$schema` reference to `./podplane.cluste
       "source": {
         "url": "https://github.com/podplane/components.git",
         "ref": {
-          "semver": "v1.2.3"
+          "semver": "^1.2.3"
         }
       }
     }

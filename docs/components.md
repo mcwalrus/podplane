@@ -97,7 +97,7 @@ By default, Flux sources component charts from the published Podplane [component
       "source": {
         "url": "https://github.com/acme/components.git",
         "ref": {
-          "semver": "v1.2.3-acme.1"
+          "semver": "^1.2.3"
         },
         "secretRef": {
           "name": "components-git-auth"

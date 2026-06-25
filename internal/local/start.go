@@ -753,7 +753,7 @@ func localComponentsSource(depsManager *deps.Manager, seed clusterconfig.Seed, n
 	}
 	return &clusterconfig.ComponentsSource{
 		URL: "https://github.com/podplane/components.git",
-		Ref: clusterconfig.ComponentsSourceRef{Semver: "v" + manifest.Components.Version},
+		Ref: clusterconfig.ComponentsSourceRef{Semver: "^" + manifest.Components.Version},
 	}, nil
 }
 

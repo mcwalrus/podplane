@@ -63,7 +63,7 @@ func TestLocalComponentsSourceUsesSemverForReleasedManifest(t *testing.T) {
 	if source == nil {
 		t.Fatalf("source is nil")
 	}
-	if got, want := source.Ref.Semver, "v1.2.1"; got != want {
+	if got, want := source.Ref.Semver, "^1.2.1"; got != want {
 		t.Fatalf("source.Ref.Semver = %q, want %q", got, want)
 	}
 	if source.Ref.Branch != "" {
