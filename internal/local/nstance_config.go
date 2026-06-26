@@ -14,9 +14,10 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/nstance-dev/nstance/pkg/fakeserver"
+
+	"github.com/podplane/podplane/internal/clusterspec"
 )
 
 type nstanceAgentUserData struct {
@@ -189,81 +190,19 @@ func podplaneRuntimeConfig(clusterID string, staticFiles map[string]string) fake
 		files[name] = fakeserver.FileConfig{Kind: "string", Template: content}
 	}
 	certs := map[string]fakeserver.CertificateConfig{}
-	for _, name := range []string{
-		"netsy.server",
-		"netsy.client",
-		"registry.server",
-		"containerd.client",
-		"kube-apiserver.server",
-		"kubelet.server",
-		"kube-apiserver.client",
-		"front-proxy.client",
-		"kubelet.client",
-		"kube2iam.client",
-		"kube-scheduler.client",
-		"kube-controller-manager.client",
-	} {
-		kind := "client"
-		if strings.HasSuffix(name, ".server") {
-			kind = "server"
+	for _, cert := range clusterspec.Certificates("{{ .Vars.NetsyClusterID }}") {
+		certCN := cert.CN
+		certs[cert.Name] = fakeserver.CertificateConfig{
+			Kind:         cert.Kind,
+			CN:           &certCN,
+			Organization: cert.Organization,
+			DNS:          cert.DNS,
+			IP:           cert.IP,
+			URI:          cert.URI,
+			TTL:          cert.TTL,
 		}
-		cn := name
-		if name == "front-proxy.client" {
-			cn = "front-proxy-client"
-		}
-		certs[name] = fakeserver.CertificateConfig{
-			Kind: kind,
-			CN:   &cn,
-			DNS:  []string{"{{ .Instance.Hostname }}", "localhost"},
-			IP:   []string{"{{ .Instance.IP4 }}", "{{ .Instance.IP6 }}", "127.0.0.1", "::1"},
-			TTL:  8760,
-		}
-		if strings.HasPrefix(name, "netsy.") {
-			certs[name] = fakeserver.CertificateConfig{
-				Kind: kind,
-				CN:   &cn,
-				DNS:  []string{"{{ .Instance.Hostname }}", "localhost"},
-				IP:   []string{"{{ .Instance.IP4 }}", "{{ .Instance.IP6 }}", "127.0.0.1", "::1"},
-				URI:  []string{"netsy://{{ .Vars.NetsyClusterID }}/peer/{{ .Instance.ID }}"},
-				TTL:  8760,
-			}
-		}
-		if name == "kube-apiserver.server" {
-			cert := certs[name]
-			cert.DNS = append(cert.DNS, "kube-apiserver.podplane.internal")
-			cert.IP = append(cert.IP, "198.18.0.1", "fdc6::1")
-			certs[name] = cert
-		}
-		if name == "kube-apiserver.client" {
-			certs[name] = fakeserver.CertificateConfig{
-				Kind:         kind,
-				CN:           &cn,
-				Organization: []string{"system:masters"},
-				DNS:          []string{"{{ .Instance.Hostname }}", "localhost"},
-				IP:           []string{"{{ .Instance.IP4 }}", "{{ .Instance.IP6 }}", "127.0.0.1", "::1"},
-				URI:          []string{"netsy://{{ .Vars.NetsyClusterID }}/client/kube-apiserver"},
-				TTL:          8760,
-			}
-		}
-		if name == "kube-controller-manager.client" {
-			cn := "system:kube-controller-manager"
-			cert := certs[name]
-			cert.CN = &cn
-			certs[name] = cert
-		}
-		if name == "kube-scheduler.client" {
-			cn := "system:kube-scheduler"
-			cert := certs[name]
-			cert.CN = &cn
-			certs[name] = cert
-		}
-		if name == "kubelet.client" {
-			cn := "system:node:{{ .Instance.ID }}"
-			cert := certs[name]
-			cert.CN = &cn
-			cert.Organization = []string{"system:nodes"}
-			certs[name] = cert
-		}
+	}
+	for _, name := range clusterspec.CertificateFiles("knc") {
 		files[name+".crt"] = fakeserver.FileConfig{
 			Kind:     "certificate",
 			Template: name,

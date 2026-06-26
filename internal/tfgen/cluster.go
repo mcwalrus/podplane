@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/podplane/podplane/internal/clusterconfig"
+	"github.com/podplane/podplane/internal/clusterspec"
 	"github.com/podplane/podplane/internal/deps"
 	"github.com/podplane/podplane/internal/userdata"
 	"github.com/podplane/podplane/pkg/seeds"
@@ -625,57 +626,21 @@ func templatesValue(cfg *clusterconfig.ClusterConfig, opts ClusterOptions, provi
 // vmconfig runtime files generated for Nstance-managed Podplane VMs.
 func nstanceCertificatesValue() hclObject {
 	fields := []hclObjectField{}
-	for _, name := range []string{
-		"containerd.client",
-		"front-proxy.client",
-		"kube-apiserver.client",
-		"kube-apiserver.server",
-		"kube-controller-manager.client",
-		"kube-scheduler.client",
-		"kube2iam.client",
-		"kubelet.client",
-		"kubelet.server",
-		"netsy.client",
-		"netsy.server",
-		"registry.server",
-	} {
-		kind := "client"
-		if strings.HasSuffix(name, ".server") {
-			kind = "server"
-		}
-		cn := name
+	for _, cert := range clusterspec.Certificates("{{ .Cluster.ID }}") {
 		certFields := []hclObjectField{
-			identField("kind", str(kind)),
-			identField("cn", str(cn)),
-			identField("dns", stringValueList([]string{"{{ .Instance.Hostname }}", "localhost"})),
-			identField("ip", stringValueList([]string{"{{ .Instance.IP4 }}", "{{ .Instance.IP6 }}", "127.0.0.1", "::1"})),
-			identField("ttl", num(8760)),
+			identField("kind", str(cert.Kind)),
+			identField("cn", str(cert.CN)),
+			identField("dns", stringValueList(cert.DNS)),
+			identField("ip", stringValueList(cert.IP)),
+			identField("ttl", num(cert.TTL)),
 		}
-		if strings.HasPrefix(name, "netsy.") {
-			certFields = append(certFields, identField("uri", stringValueList([]string{"netsy://{{ .Cluster.ID }}/peer/{{ .Instance.ID }}"})))
+		if len(cert.Organization) > 0 {
+			certFields = append(certFields, identField("organization", stringValueList(cert.Organization)))
 		}
-		if name == "kube-apiserver.server" {
-			certFields[2] = identField("dns", stringValueList([]string{"{{ .Instance.Hostname }}", "localhost", "kube-apiserver.podplane.internal"}))
-			certFields[3] = identField("ip", stringValueList([]string{"{{ .Instance.IP4 }}", "{{ .Instance.IP6 }}", "127.0.0.1", "::1", "198.18.0.1", "fdc6::1"}))
+		if len(cert.URI) > 0 {
+			certFields = append(certFields, identField("uri", stringValueList(cert.URI)))
 		}
-		if name == "front-proxy.client" {
-			certFields[1] = identField("cn", str("front-proxy-client"))
-		}
-		if name == "kube-apiserver.client" {
-			certFields = append(certFields, identField("organization", stringValueList([]string{"system:masters"})))
-			certFields = append(certFields, identField("uri", stringValueList([]string{"netsy://{{ .Cluster.ID }}/client/kube-apiserver"})))
-		}
-		if name == "kube-controller-manager.client" {
-			certFields[1] = identField("cn", str("system:kube-controller-manager"))
-		}
-		if name == "kube-scheduler.client" {
-			certFields[1] = identField("cn", str("system:kube-scheduler"))
-		}
-		if name == "kubelet.client" {
-			certFields[1] = identField("cn", str("system:node:{{ .Instance.ID }}"))
-			certFields = append(certFields, identField("organization", stringValueList([]string{"system:nodes"})))
-		}
-		fields = append(fields, field(name, inlineObject(certFields...)))
+		fields = append(fields, field(cert.Name, inlineObject(certFields...)))
 	}
 	return object(fields...)
 }
@@ -683,31 +648,13 @@ func nstanceCertificatesValue() hclObject {
 // nstanceTemplateFilesValue returns the runtime files Nstance should generate
 // for one vmconfig kind, including certificate files backed by agent keys.
 func nstanceTemplateFilesValue(kind string) hclInlineObject {
-	names := []string{
-		"containerd.client",
-		"kube2iam.client",
-		"kubelet.client",
-		"kubelet.server",
-		"registry.server",
-	}
-	if kind == "knc" {
-		names = append(names,
-			"front-proxy.client",
-			"kube-apiserver.client",
-			"kube-apiserver.server",
-			"kube-controller-manager.client",
-			"kube-scheduler.client",
-			"netsy.client",
-			"netsy.server",
-		)
-	}
 	fields := []hclObjectField{
 		field("mutable.env", inlineObject(
 			identField("kind", str("env")),
 			identField("template", expr("local.mutable_env")),
 		)),
 	}
-	for _, name := range names {
+	for _, name := range clusterspec.CertificateFiles(kind) {
 		fields = append(fields, field(name+".crt", inlineObject(
 			identField("kind", str("certificate")),
 			identField("template", str(name)),
