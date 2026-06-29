@@ -95,12 +95,12 @@ func TestBuildPlatformComponentsValuesRegistryMirror(t *testing.T) {
 		t.Fatalf("buildPlatformComponentsValues error = %v", err)
 	}
 	components := values["platform"].(map[string]any)["components"].(map[string]any)
-	mirror := components["registry"].(map[string]any)["mirror"].(map[string]any)
+	mirror := components["imageMirror"].(map[string]any)
 	if got, want := mirror["enabled"], true; got != want {
-		t.Fatalf("registry.mirror.enabled = %v, want %v", got, want)
+		t.Fatalf("imageMirror.enabled = %v, want %v", got, want)
 	}
 	if got, want := mirror["hostname"], "dev-registry.local"; got != want {
-		t.Fatalf("registry.mirror.hostname = %v, want %v", got, want)
+		t.Fatalf("imageMirror.hostname = %v, want %v", got, want)
 	}
 }
 

@@ -189,10 +189,9 @@ func TestMergeValuesFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`
 platform:
   components:
-    registry:
-      mirror:
-        enabled: true
-        hostname: first.example.com
+    imageMirror:
+      enabled: true
+      hostname: first.example.com
     apps:
       traefik:
         enabled: true
@@ -213,7 +212,7 @@ platform:
 		t.Fatalf("mergeValuesFile error = %v", err)
 	}
 	components := values["platform"].(map[string]any)["components"].(map[string]any)
-	mirror := components["registry"].(map[string]any)["mirror"].(map[string]any)
+	mirror := components["imageMirror"].(map[string]any)
 	if got, want := mirror["enabled"], true; got != want {
 		t.Fatalf("mirror.enabled = %v, want %v", got, want)
 	}
@@ -302,9 +301,9 @@ func TestWriteSnapshotWritesBytes(t *testing.T) {
 			if zone != "local.localhost" {
 				t.Fatalf("seeded ingress zone = %v, want local.localhost", zone)
 			}
-			mirror := components["registry"].(map[string]any)["mirror"].(map[string]any)
+			mirror := components["imageMirror"].(map[string]any)
 			if mirror["enabled"] != true || mirror["hostname"] != "dev-registry.local" {
-				t.Fatalf("registry mirror = %#v, want enabled dev-registry.local", mirror)
+				t.Fatalf("imageMirror = %#v, want enabled dev-registry.local", mirror)
 			}
 			found = true
 		case "/registry/deployments/platform-flux/source-controller":

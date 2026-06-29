@@ -94,11 +94,9 @@ func applyRegistryMirror(components map[string]any, mirror clusterconfig.Compone
 	if !mirror.Enabled {
 		return
 	}
-	components["registry"] = map[string]any{
-		"mirror": map[string]any{
-			"enabled":  true,
-			"hostname": mirror.Hostname,
-		},
+	components["imageMirror"] = map[string]any{
+		"enabled":  true,
+		"hostname": mirror.Hostname,
 	}
 }
 
