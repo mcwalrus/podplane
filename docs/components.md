@@ -31,7 +31,7 @@ Components are deployed with an opinionated, tested configuration - not the full
     - `fluxcd-crds` for Flux CD
 - `gateway-api-crds` for any ingress controller using Gateway API, particularly Traefik
 - `platform-components` for Podplane component management. This chart creates the Flux source, platform namespaces, and HelmReleases for enabled components.
-- `platform-rbac` for default Podplane platform RBAC and admission policies
+- `platform-rbac` for default Podplane platform [RBAC](rbac.md) and admission policies
 
 ### Addon Components
 
