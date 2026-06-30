@@ -88,3 +88,5 @@ brews:
     homepage: "https://podplane.dev"
     description: "The official CLI for Podplane"
     license: "Apache-2.0"
+    extra_install: |
+      bin.install_symlink "podplane" => "docker-credential-podplane"
