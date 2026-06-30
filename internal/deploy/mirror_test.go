@@ -24,8 +24,8 @@ func TestTemplateMirrorSetArgsInjectsTemplateImages(t *testing.T) {
 
 	got := TemplateMirrorSetArgs(images, "web", cluster, "", nil)
 	want := []string{
-		"images.app=zot.local/ghcr.io/podplane/hello:latest",
-		"images.caddy=zot.local/docker.io/library/caddy:2",
+		"images.app=zot.local/mirror/ghcr.io/podplane/hello:latest",
+		"images.caddy=zot.local/mirror/docker.io/library/caddy:2",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("TemplateMirrorSetArgs() = %#v, want %#v", got, want)

@@ -23,12 +23,25 @@ type Cluster struct {
 	OIDC       OIDC            `json:"oidc"`
 	ACME       *ACME           `json:"acme,omitempty"`
 	Domains    []Domain        `json:"domains,omitempty"`
+	Registry   Registry        `json:"registry,omitempty"`
 	Pools      map[string]Pool `json:"pools,omitempty"`
 	Providers  []Provider      `json:"providers,omitempty"`
 	Secrets    Secrets         `json:"secrets,omitempty"`
 	Kubernetes Kubernetes      `json:"kubernetes"`
 	Seed       Seed            `json:"seed,omitempty"`
 	Components Components      `json:"components,omitempty"`
+}
+
+// Registry describes the cluster-level OCI registry endpoint used by node-local
+// zot, podplane push, and optional registry ingress.
+type Registry struct {
+	Hostname string          `json:"hostname,omitempty"`
+	Ingress  RegistryIngress `json:"ingress,omitempty"`
+}
+
+// RegistryIngress configures optional Docker-compatible public registry ingress.
+type RegistryIngress struct {
+	Enabled bool `json:"enabled,omitempty"`
 }
 
 // Secrets describes Podplane Secrets provider selection. Only safe provider
@@ -81,10 +94,11 @@ type ComponentsRegistry struct {
 }
 
 // ComponentsRegistryMirror enables explicit mirrored component image references
-// such as <hostname>/<original-registry>/<repository>:<tag>.
+// such as <hostname>/<prefix>/<original-registry>/<repository>:<tag>.
 type ComponentsRegistryMirror struct {
 	Enabled  bool   `json:"enabled,omitempty"`
 	Hostname string `json:"hostname,omitempty"`
+	Prefix   string `json:"prefix,omitempty"`
 }
 
 // ComponentsSource overrides the Git repository used by platform-components.
@@ -232,6 +246,15 @@ func (c *ClusterConfig) ResolvedUsernameClaim() string {
 		return c.Cluster.OIDC.UsernameClaim
 	}
 	return "email"
+}
+
+// ResolvedGroupsClaim returns the configured groups_claim, defaulting to
+// "groups".
+func (c *ClusterConfig) ResolvedGroupsClaim() string {
+	if c.Cluster.OIDC.GroupsClaim != "" {
+		return c.Cluster.OIDC.GroupsClaim
+	}
+	return "groups"
 }
 
 // ResolvedKubernetesAPIURL builds the https URL for the cluster's API server.

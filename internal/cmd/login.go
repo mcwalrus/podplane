@@ -14,6 +14,7 @@ import (
 	"github.com/podplane/podplane/internal/clusterauth"
 	"github.com/podplane/podplane/internal/clusterconfig"
 	"github.com/podplane/podplane/internal/config"
+	"github.com/podplane/podplane/internal/dockerconfig"
 	"github.com/podplane/podplane/internal/kubectl"
 	"github.com/spf13/cobra"
 )
@@ -86,6 +87,15 @@ matching cluster, user and context.`,
 			}
 			if err := c.SetClusterSummary(config.ClusterSummaryFromConfig(cluster), false); err != nil {
 				return fmt.Errorf("cache cluster summary: %w", err)
+			}
+			if cluster.Cluster.Registry.Hostname != "" && cluster.Cluster.Registry.Ingress.Enabled {
+				configured, err := dockerconfig.SetCredentialHelper(cluster.Cluster.Registry.Hostname)
+				if err != nil {
+					return err
+				}
+				if configured {
+					fmt.Printf("✓ Configured Docker credential helper for %s\n", cluster.Cluster.Registry.Hostname)
+				}
 			}
 			user := meta.UserEmail
 			if user == "" {

@@ -64,7 +64,7 @@ func WriteSnapshot(w io.Writer, opts SnapshotOptions) error {
 		return err
 	}
 	if cluster.Cluster.Components.Registry != nil && cluster.Cluster.Components.Registry.Mirror.Enabled {
-		if err := rewriteSeedImages(records, cluster.Cluster.Components.Registry.Mirror.Hostname); err != nil {
+		if err := rewriteSeedImages(records, cluster.Cluster.RegistryMirrorHostname(), cluster.Cluster.RegistryMirrorPrefix()); err != nil {
 			return err
 		}
 	}
@@ -162,19 +162,23 @@ func interpolatePlatformComponents(records []*datafile.Record, values map[string
 }
 
 // rewriteSeedImages prefixes JSON image fields with the configured registry
-// mirror host. Seedgen is responsible for normalizing image references before
-// Podplane receives the seed.
-func rewriteSeedImages(records []*datafile.Record, mirrorHostname string) error {
-	mirrorHostname = strings.TrimSuffix(mirrorHostname, "/")
-	if mirrorHostname == "" {
+// mirror host and path prefix. Seedgen is responsible for normalizing image
+// references before Podplane receives the seed.
+func rewriteSeedImages(records []*datafile.Record, mirrorHostname, mirrorPrefix string) error {
+	mirrorBaseURL := strings.TrimSuffix(mirrorHostname, "/")
+	if mirrorBaseURL == "" {
 		return nil
+	}
+	mirrorPrefix = strings.Trim(strings.TrimSpace(mirrorPrefix), "/")
+	if mirrorPrefix != "" {
+		mirrorBaseURL += "/" + mirrorPrefix
 	}
 	for i := range records {
 		var obj any
 		if err := json.Unmarshal(records[i].Value, &obj); err != nil {
 			continue
 		}
-		if !rewriteImageFields(obj, mirrorHostname) {
+		if !rewriteImageFields(obj, mirrorBaseURL) {
 			continue
 		}
 		var buf bytes.Buffer
@@ -189,27 +193,27 @@ func rewriteSeedImages(records []*datafile.Record, mirrorHostname string) error 
 }
 
 // rewriteImageFields recursively prefixes string fields named image with the
-// configured mirror hostname.
-func rewriteImageFields(value any, mirrorHostname string) bool {
+// configured mirror base url.
+func rewriteImageFields(value any, mirrorBaseURL string) bool {
 	var changed bool
 	switch v := value.(type) {
 	case map[string]any:
 		for key, child := range v {
 			if key == "image" {
 				image, ok := child.(string)
-				if ok && image != "" && !strings.HasPrefix(image, mirrorHostname+"/") {
-					v[key] = mirrorHostname + "/" + image
+				if ok && image != "" && !strings.HasPrefix(image, mirrorBaseURL+"/") {
+					v[key] = mirrorBaseURL + "/" + image
 					changed = true
 				}
 				continue
 			}
-			if rewriteImageFields(child, mirrorHostname) {
+			if rewriteImageFields(child, mirrorBaseURL) {
 				changed = true
 			}
 		}
 	case []any:
 		for _, child := range v {
-			if rewriteImageFields(child, mirrorHostname) {
+			if rewriteImageFields(child, mirrorBaseURL) {
 				changed = true
 			}
 		}

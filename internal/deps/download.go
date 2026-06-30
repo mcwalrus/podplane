@@ -573,7 +573,7 @@ func (m *Manager) downloadPending(pending []pendingDownload, concurrency int, cl
 		return true
 	}
 	componentRepoLock := func(image ComponentImage) *sync.Mutex {
-		repo := mirrorRepoFromChartImage(image.Image)
+		repo := mirrorRepoFromChartImage(defaultMirrorPrefix, image.Image)
 		repoLocksMu.Lock()
 		defer repoLocksMu.Unlock()
 		lock := repoLocks[repo]

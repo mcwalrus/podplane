@@ -74,6 +74,56 @@ func SetContext(stdout io.Writer, sub string, clusterID string, local bool) erro
 	return cmd.Run()
 }
 
+// UserFromContext returns the kubeconfig user for the selected context. If
+// kubeContext is empty, the current context is used.
+func UserFromContext(kubeContext, kubeconfig string) (string, error) {
+	args := []string{"config", "view", "--raw", "--output=json"}
+	if kubeconfig != "" {
+		args = append(args, "--kubeconfig", kubeconfig)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := execwrap.Command("kubectl", args...)
+	cmd.Stdout = &out
+	cmd.Stderr = &errOut
+	if err := cmd.Run(); err != nil {
+		stderr := strings.TrimSpace(errOut.String())
+		if stderr != "" {
+			return "", fmt.Errorf("read kubeconfig user: %w: %s", err, stderr)
+		}
+		return "", fmt.Errorf("read kubeconfig user: %w", err)
+	}
+
+	var cfg struct {
+		CurrentContext string `json:"current-context"`
+		Contexts       []struct {
+			Name    string `json:"name"`
+			Context struct {
+				User string `json:"user"`
+			} `json:"context"`
+		} `json:"contexts"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &cfg); err != nil {
+		return "", fmt.Errorf("parse kubeconfig: %w", err)
+	}
+
+	name := strings.TrimSpace(kubeContext)
+	if name == "" {
+		name = strings.TrimSpace(cfg.CurrentContext)
+	}
+	if name == "" {
+		return "", fmt.Errorf("no kubeconfig context selected; pass --context or select a current context")
+	}
+
+	for _, context := range cfg.Contexts {
+		if context.Name == name {
+			return context.Context.User, nil
+		}
+	}
+	return "", fmt.Errorf("kubeconfig context %q not found", name)
+}
+
 // ClusterIDFromContext returns a kubeconfig context's Podplane cluster ID and
 // whether it is a local Podplane cluster context. If kubeContext is empty, the
 // current context is used.

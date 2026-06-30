@@ -29,8 +29,31 @@ func buildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig) (map[string
 		},
 	}
 	components := values["platform"].(map[string]any)["components"].(map[string]any)
-	if cfg.Cluster.Components.Registry != nil {
-		applyRegistryMirror(components, cfg.Cluster.Components.Registry.Mirror)
+	var componentValues map[string]any
+	if cfg.Cluster.Components.Registry != nil && cfg.Cluster.Components.Registry.Mirror.Enabled {
+		applyRegistryMirror(components, cfg.Cluster)
+	}
+	if cfg.Cluster.Registry.Hostname != "" {
+		componentValues = ensureChildMap(components, "values")
+		componentValues["zot-registry"] = map[string]any{
+			"platform": map[string]any{
+				"registry": map[string]any{
+					"bucket": map[string]any{
+						"name": cfg.Cluster.ID + "-registry",
+					},
+					"hostname": cfg.Cluster.Registry.Hostname,
+					"ingress": map[string]any{
+						"enabled": cfg.Cluster.Registry.Ingress.Enabled,
+					},
+					"oidc": map[string]any{
+						"issuerURL":     cfg.Cluster.OIDC.IssuerURL,
+						"audience":      cfg.ResolvedClientID(),
+						"usernameClaim": cfg.ResolvedUsernameClaim(),
+						"groupsClaim":   cfg.ResolvedGroupsClaim(),
+					},
+				},
+			},
+		}
 	}
 	applyProviderComponents(components, cfg.Cluster.Providers)
 	applySecretsComponents(components, cfg.Cluster.ID, cfg.Cluster.Secrets)
@@ -65,19 +88,20 @@ func buildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig) (map[string
 		"platform-certs": map[string]any{"enabled": true},
 		"traefik":        map[string]any{"enabled": true},
 	}
-	components["values"] = map[string]any{
-		"platform-certs": platformCerts,
-		"traefik": map[string]any{
-			"platform": map[string]any{
-				"traefik": map[string]any{
-					"ingress": map[string]any{
-						"enabled": true,
-						"issuerRef": map[string]any{
-							"kind": "ClusterIssuer",
-							"name": issuerName,
-						},
-						"domains": ingressDomains(cfg.Cluster.Domains),
+	if componentValues == nil {
+		componentValues = ensureChildMap(components, "values")
+	}
+	componentValues["platform-certs"] = platformCerts
+	componentValues["traefik"] = map[string]any{
+		"platform": map[string]any{
+			"traefik": map[string]any{
+				"ingress": map[string]any{
+					"enabled": true,
+					"issuerRef": map[string]any{
+						"kind": "ClusterIssuer",
+						"name": issuerName,
 					},
+					"domains": ingressDomains(cfg.Cluster.Domains),
 				},
 			},
 		},
@@ -90,13 +114,14 @@ func buildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig) (map[string
 
 // applyRegistryMirror configures platform-components to render explicit image
 // references to the configured component image mirror.
-func applyRegistryMirror(components map[string]any, mirror clusterconfig.ComponentsRegistryMirror) {
-	if !mirror.Enabled {
+func applyRegistryMirror(components map[string]any, cluster clusterconfig.Cluster) {
+	if cluster.Components.Registry == nil || !cluster.Components.Registry.Mirror.Enabled {
 		return
 	}
 	components["imageMirror"] = map[string]any{
 		"enabled":  true,
-		"hostname": mirror.Hostname,
+		"hostname": cluster.RegistryMirrorHostname(),
+		"prefix":   cluster.RegistryMirrorPrefix(),
 	}
 }
 

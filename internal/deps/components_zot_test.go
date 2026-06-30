@@ -17,16 +17,16 @@ import (
 
 func TestMirrorRepoFromChartImagePreservesRenderedRepoPath(t *testing.T) {
 	tests := map[string]string{
-		"quay.io/cilium/cilium:v1.16.3@sha256:abc":                   "quay.io/cilium/cilium",
-		"ghcr.io/fluxcd/source-controller:v1.8.2":                    "ghcr.io/fluxcd/source-controller",
-		"registry.k8s.io/sig-storage/snapshot-controller@sha256:abc": "registry.k8s.io/sig-storage/snapshot-controller",
-		"docker.io/traefik:v3.4.3":                                   "docker.io/traefik",
-		"coredns/coredns:1.11.3":                                     "docker.io/coredns/coredns",
-		"caddy:latest":                                               "docker.io/library/caddy",
-		"localhost:5000/example/app:tag":                             "localhost:5000/example/app",
+		"quay.io/cilium/cilium:v1.16.3@sha256:abc":                   "mirror/quay.io/cilium/cilium",
+		"ghcr.io/fluxcd/source-controller:v1.8.2":                    "mirror/ghcr.io/fluxcd/source-controller",
+		"registry.k8s.io/sig-storage/snapshot-controller@sha256:abc": "mirror/registry.k8s.io/sig-storage/snapshot-controller",
+		"docker.io/traefik:v3.4.3":                                   "mirror/docker.io/traefik",
+		"coredns/coredns:1.11.3":                                     "mirror/docker.io/coredns/coredns",
+		"caddy:latest":                                               "mirror/docker.io/library/caddy",
+		"localhost:5000/example/app:tag":                             "mirror/localhost:5000/example/app",
 	}
 	for input, want := range tests {
-		if got := mirrorRepoFromChartImage(input); got != want {
+		if got := mirrorRepoFromChartImage(defaultMirrorPrefix, input); got != want {
 			t.Fatalf("mirrorRepoFromChartImage(%q) = %q, want %q", input, got, want)
 		}
 	}
@@ -34,15 +34,15 @@ func TestMirrorRepoFromChartImagePreservesRenderedRepoPath(t *testing.T) {
 
 func TestMirroredImageRef(t *testing.T) {
 	tests := map[string]string{
-		"docker.io/library/caddy:2":           "zot.local/docker.io/library/caddy:2",
-		"caddy:latest":                        "zot.local/docker.io/library/caddy:latest",
-		"coredns/coredns:1.11.3":              "zot.local/docker.io/coredns/coredns:1.11.3",
-		"ghcr.io/podplane/hello@sha256:abc":   "zot.local/ghcr.io/podplane/hello@sha256:abc",
-		"quay.io/cilium/cilium:v1@sha256:def": "zot.local/quay.io/cilium/cilium:v1@sha256:def",
-		"localhost:5000/example/app:tag":      "zot.local/localhost:5000/example/app:tag",
+		"docker.io/library/caddy:2":           "zot.local/mirror/docker.io/library/caddy:2",
+		"caddy:latest":                        "zot.local/mirror/docker.io/library/caddy:latest",
+		"coredns/coredns:1.11.3":              "zot.local/mirror/docker.io/coredns/coredns:1.11.3",
+		"ghcr.io/podplane/hello@sha256:abc":   "zot.local/mirror/ghcr.io/podplane/hello@sha256:abc",
+		"quay.io/cilium/cilium:v1@sha256:def": "zot.local/mirror/quay.io/cilium/cilium:v1@sha256:def",
+		"localhost:5000/example/app:tag":      "zot.local/mirror/localhost:5000/example/app:tag",
 	}
 	for input, want := range tests {
-		if got := MirroredImageRef("zot.local", input); got != want {
+		if got := MirroredImageRef("zot.local", "mirror", input); got != want {
 			t.Fatalf("MirroredImageRef(%q) = %q, want %q", input, got, want)
 		}
 	}
@@ -133,7 +133,7 @@ func TestComponentImageCachedUsesLocalZotIndex(t *testing.T) {
 		Digest:    digest,
 		Size:      int64(len(body)),
 	}
-	repoDir := filepath.Join(destDir, zotRootDirectory, filepath.FromSlash(mirrorRepoFromChartImage(image.Image)))
+	repoDir := filepath.Join(destDir, zotRootDirectory, filepath.FromSlash(mirrorRepoFromChartImage(defaultMirrorPrefix, image.Image)))
 	if err := os.MkdirAll(filepath.Join(repoDir, "blobs", "sha256"), 0o755); err != nil {
 		t.Fatalf("create blobs dir: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestComponentImageCachedRequiresPinnedChartDigest(t *testing.T) {
 		Digest:    childDigest,
 		Size:      int64(len(childBody)),
 	}
-	repoDir := filepath.Join(destDir, zotRootDirectory, filepath.FromSlash(mirrorRepoFromChartImage(image.Image)))
+	repoDir := filepath.Join(destDir, zotRootDirectory, filepath.FromSlash(mirrorRepoFromChartImage(defaultMirrorPrefix, image.Image)))
 	if err := os.MkdirAll(filepath.Join(repoDir, "blobs", "sha256"), 0o755); err != nil {
 		t.Fatalf("create blobs dir: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestComponentImageCachedRequiresTopLevelChildManifest(t *testing.T) {
 		Digest:    childDigest,
 		Size:      int64(len(childBody)),
 	}
-	repoDir := filepath.Join(destDir, zotRootDirectory, filepath.FromSlash(mirrorRepoFromChartImage(image.Image)))
+	repoDir := filepath.Join(destDir, zotRootDirectory, filepath.FromSlash(mirrorRepoFromChartImage(defaultMirrorPrefix, image.Image)))
 	if err := os.MkdirAll(filepath.Join(repoDir, "blobs", "sha256"), 0o755); err != nil {
 		t.Fatalf("create blobs dir: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestComponentImageCachedRejectsDuplicateSameArchManifest(t *testing.T) {
 		Size:      int64(len(newBody)),
 		Platform:  "linux/arm64/v8",
 	}
-	repoDir := filepath.Join(destDir, zotRootDirectory, filepath.FromSlash(mirrorRepoFromChartImage(image.Image)))
+	repoDir := filepath.Join(destDir, zotRootDirectory, filepath.FromSlash(mirrorRepoFromChartImage(defaultMirrorPrefix, image.Image)))
 	if err := os.MkdirAll(filepath.Join(repoDir, "blobs", "sha256"), 0o755); err != nil {
 		t.Fatalf("create blobs dir: %v", err)
 	}

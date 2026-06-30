@@ -158,7 +158,7 @@ func (c *Config) AuthListByCluster(clusterID string, local bool) ([]AuthMetadata
 		}
 		// key is "<sub>:<clusterID>" after local scope removal.
 		parts := strings.SplitN(key, ":", 2)
-		if len(parts) != 2 || parts[1] != clusterID {
+		if len(parts) != 2 || (clusterID != "" && parts[1] != clusterID) {
 			continue
 		}
 		m, ok := raw.(map[string]any)

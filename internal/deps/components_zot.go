@@ -21,6 +21,7 @@ import (
 )
 
 const zotRootDirectory = "."
+const defaultMirrorPrefix = "mirror"
 
 var ociLayoutJSON = []byte(`{"imageLayoutVersion":"1.0.0"}`)
 
@@ -145,7 +146,7 @@ func writeComponentImage(ctx context.Context, destDir string, image ComponentIma
 			return fmt.Errorf("parse chart descriptor image %q: %w", image.Image, err)
 		}
 	}
-	repo := mirrorRepoFromChartImage(image.Image)
+	repo := mirrorRepoFromChartImage(defaultMirrorPrefix, image.Image)
 	repoDir := filepath.Join(destDir, zotRootDirectory, filepath.FromSlash(repo))
 	if err := os.MkdirAll(filepath.Join(repoDir, "blobs", "sha256"), 0o755); err != nil {
 		return fmt.Errorf("create zot repo %s: %w", repo, err)
@@ -205,7 +206,7 @@ func componentImageCached(destDir string, image ComponentImage) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("parse image %q: %w", image.Image, err)
 	}
-	repo := mirrorRepoFromChartImage(image.Image)
+	repo := mirrorRepoFromChartImage(defaultMirrorPrefix, image.Image)
 	repoDir := filepath.Join(destDir, zotRootDirectory, filepath.FromSlash(repo))
 	_, wantTag, chartDigest := splitImageRef(image.Image)
 	if wantTag != "" {
@@ -280,27 +281,33 @@ func resolvedImage(image, digest string) string {
 	return repo + "@" + digest
 }
 
-// mirrorRepoFromChartImage returns the zot repository path for a rendered source image.
-func mirrorRepoFromChartImage(chartImage string) string {
+// mirrorRepoFromChartImage returns the zot repository path for a rendered source image under prefix.
+func mirrorRepoFromChartImage(prefix, chartImage string) string {
 	image, _, _ := splitImageRef(chartImage)
 	first := image
 	if slash := strings.Index(image, "/"); slash >= 0 {
 		first = image[:slash]
 	}
+	var repo string
 	if strings.Contains(first, ".") || strings.Contains(first, ":") || first == "localhost" {
-		return image
+		repo = image
+	} else if strings.Contains(image, "/") {
+		repo = "docker.io/" + image
+	} else {
+		repo = "docker.io/library/" + image
 	}
-	if strings.Contains(image, "/") {
-		return "docker.io/" + image
+	prefix = strings.Trim(strings.TrimSpace(prefix), "/")
+	if prefix == "" {
+		return repo
 	}
-	return "docker.io/library/" + image
+	return prefix + "/" + repo
 }
 
 // MirroredImageRef returns the explicit image reference served by mirrorHost
 // for a source image cached with Podplane's zot repository layout.
-func MirroredImageRef(mirrorHost, image string) string {
+func MirroredImageRef(mirrorHost, mirrorPrefix, image string) string {
 	repo, tag, digest := splitImageRef(image)
-	repo = mirrorRepoFromChartImage(repo)
+	repo = mirrorRepoFromChartImage(mirrorPrefix, repo)
 	ref := mirrorHost + "/" + repo
 	if tag != "" {
 		ref += ":" + tag

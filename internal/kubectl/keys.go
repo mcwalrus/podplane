@@ -4,7 +4,10 @@
 
 package kubectl
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // ClusterKey returns the kubectl cluster key for the given clusterID.
 // Remote: podplane-{clusterID}
@@ -38,4 +41,16 @@ func CredentialsKey(sub string, clusterID string, local bool) string {
 		return fmt.Sprintf("podplane-local-%s-%s", clusterID, sub)
 	}
 	return fmt.Sprintf("podplane-%s-%s", clusterID, sub)
+}
+
+// SubFromCredentialsKey extracts a subject from a Podplane kubectl user key.
+func SubFromCredentialsKey(key, clusterID string, local bool) string {
+	prefix := fmt.Sprintf("podplane-%s-", clusterID)
+	if local {
+		prefix = fmt.Sprintf("podplane-local-%s-", clusterID)
+	}
+	if !strings.HasPrefix(key, prefix) {
+		return ""
+	}
+	return strings.TrimPrefix(key, prefix)
 }

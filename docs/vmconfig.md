@@ -32,13 +32,13 @@ For local VMs run via the Podplane CLI, the same `vmconfig` configuration is use
 
 The CLI itself is responsible for downloading/caching dependencies and serving them to the VM via a webserver it runs in the background via the [local start](cli-reference/local-start.md) command. The same webserver also hosts a fake OIDC server and fake S3 server for local clusters. You can also use [local server](cli-reference/local-server.md) to run the webserver directly.
 
-## Container Registry Mirror
+## Container Registry
 
 VMs run a Zot Registry backed by the configured registry object-storage bucket.
 
 Podplane supports component and template image "mirroring" whereby the registry bucket stores a copy of all required container images if mirroring is enabled.
 
-To use this mirror, components render explicit image references such as `<registry-hostname>/<original-registry>/<repository>:<tag>`. Podplane intentionally does not make zot a transparent containerd pull-through cache for all image pulls - while that would have made configuring image references easier without the `<registry-hostname>/` prefix, the decision to use explicit references was because:
+To use this mirror, components render explicit image references such as `<registry-hostname>/mirror/<original-registry>/<repository>:<tag>`. This differs to user-pushed app images which live under `<registry-hostname>/apps/...`. Podplane intentionally does not make zot a transparent containerd pull-through cache for all image pulls - while that would have made configuring image references easier without the `<registry-hostname>/` prefix, the decision to use explicit references was because:
 
 1. it is obvious from the rendered Kubernetes manifest when an image is using the Podplane built-in registry, even though components and templates need to do more work to render the correct image references (e.g. you have to override an off-the-shelf Helm chart values file to change the images used)
 2. user workloads keep native Kubernetes registry authentication behavior, including per-namespace and per-service-account `imagePullSecrets`; a transparent zot pull-through cache would require zot to authenticate to upstream registries itself and would not naturally receive the pod's upstream registry credentials

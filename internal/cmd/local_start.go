@@ -316,7 +316,7 @@ func printLocalStartDone(clusterID string) {
 	fmt.Println()
 	fmt.Println("Try this")
 	fmt.Println(`  podplane deploy web --name hello \`)
-	fmt.Printf(`    --image %s-registry.local/ghcr.io/podplane/hello:latest \`+"\n", clusterID)
+	fmt.Printf(`    --image %s-registry.local/mirror/ghcr.io/podplane/hello:latest \`+"\n", clusterID)
 	fmt.Printf("    --hostname hello.%s.localhost\n", clusterID)
 	fmt.Println()
 	fmt.Println("After deploy")

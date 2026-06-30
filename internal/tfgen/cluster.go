@@ -113,7 +113,7 @@ func renderAWSCluster(configPath string, cfg *clusterconfig.ClusterConfig, provi
 		{"telemetry_s3_secret_access_key", "Telemetry S3 secret access key for non-IAM providers.", "string", str("")},
 		{"telemetry_otlp_endpoint", "OTLP endpoint for telemetry export.", "string", str("")},
 		{"registry_enabled", "Enable the VM-hosted registry service.", "bool", hclBool(true)},
-		{"registry_hostname", "Hostname used by clients to reach the registry.", "string", str("")},
+		{"registry_hostname", "Hostname used by clients to reach the registry.", "string", str(cfg.Cluster.Registry.Hostname)},
 		{"registry_endpoint", "Custom registry object-storage endpoint URL.", "string", str("")},
 		{"registry_access_key_id", "Registry object-storage access key ID for non-IAM providers.", "string", str("")},
 		{"registry_secret_access_key", "Registry object-storage secret access key for non-IAM providers.", "string", str("")},

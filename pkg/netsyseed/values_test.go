@@ -102,6 +102,9 @@ func TestBuildPlatformComponentsValuesRegistryMirror(t *testing.T) {
 	if got, want := mirror["hostname"], "dev-registry.local"; got != want {
 		t.Fatalf("imageMirror.hostname = %v, want %v", got, want)
 	}
+	if got, want := mirror["prefix"], "mirror"; got != want {
+		t.Fatalf("imageMirror.prefix = %v, want %v", got, want)
+	}
 }
 
 func TestBuildPlatformComponentsValuesGroupsAWSSolvers(t *testing.T) {

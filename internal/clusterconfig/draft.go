@@ -65,6 +65,9 @@ var defaultDraftConfig = ClusterConfig{Cluster: Cluster{
 	ID:   "example-cluster",
 	Name: "Example Cluster",
 	OIDC: OIDC{IssuerURL: "https://auth.example.com"},
+	Registry: Registry{
+		Hostname: "registry.example.com",
+	},
 	Pools: map[string]Pool{
 		"control-plane": {
 			Arch:         "arm64",

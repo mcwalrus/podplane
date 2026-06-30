@@ -36,6 +36,7 @@
           "description": "DNS zones and providers used by cluster ingress and certificate automation.",
           "items": { "$ref": "#/$defs/domain" }
         },
+        "registry": { "$ref": "#/$defs/registry" },
         "pools": {
           "type": "object",
           "description": "Named VM pools. Pool names are referenced by subnets and load-balancer listeners.",
@@ -361,7 +362,23 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean", "description": "Render platform component image references through the configured image mirror." },
-        "hostname": { "type": "string", "description": "Registry mirror hostname used as the prefix for mirrored component image references." }
+        "hostname": { "type": "string", "description": "Advanced shared-mirror hostname override. Defaults to cluster.registry.hostname." },
+        "prefix": { "type": "string", "description": "Advanced mirror path-prefix override. Leading and trailing slashes are ignored; defaults to mirror." }
+      }
+    },
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hostname": { "type": "string", "description": "Cluster registry hostname used by node-local Zot, podplane push, and optional Docker-compatible ingress." },
+        "ingress": { "$ref": "#/$defs/registryIngress" }
+      }
+    },
+    "registryIngress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Enable optional Docker-compatible registry ingress and token-service routing. Disabled by default." }
       }
     },
     "componentsSource": {

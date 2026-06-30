@@ -109,11 +109,11 @@ func TestInterpolateComponentsSourceRemovesSecretRefWhenUnset(t *testing.T) {
 
 func TestRewriteSeedImagesPrefixesAllJSONImageFields(t *testing.T) {
 	records := []*datafile.Record{
-		{Key: []byte("/registry/deployments/platform-flux/source-controller"), Value: []byte(`{"apiVersion":"apps/v1","kind":"Deployment","spec":{"template":{"spec":{"initContainers":[{"image":"docker.io/library/busybox:1"}],"containers":[{"image":"ghcr.io/fluxcd/source-controller:v1.5.0"}],"ephemeralContainers":[{"image":"dev-registry.local/docker.io/library/alpine:3"}]}}}}`)},
+		{Key: []byte("/registry/deployments/platform-flux/source-controller"), Value: []byte(`{"apiVersion":"apps/v1","kind":"Deployment","spec":{"template":{"spec":{"initContainers":[{"image":"docker.io/library/busybox:1"}],"containers":[{"image":"ghcr.io/fluxcd/source-controller:v1.5.0"}],"ephemeralContainers":[{"image":"dev-registry.local/mirror/docker.io/library/alpine:3"}]}}}}`)},
 		{Key: []byte("/registry/configmaps/default/ignored"), Value: []byte(`not json`)},
 	}
 
-	if err := rewriteSeedImages(records, "dev-registry.local/"); err != nil {
+	if err := rewriteSeedImages(records, "dev-registry.local/", "mirror"); err != nil {
 		t.Fatalf("rewriteSeedImages error = %v", err)
 	}
 	var got map[string]any
@@ -121,13 +121,13 @@ func TestRewriteSeedImagesPrefixesAllJSONImageFields(t *testing.T) {
 		t.Fatalf("unmarshal rewritten record: %v", err)
 	}
 	podSpec := got["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
-	if image := containerImage(t, podSpec, "initContainers", 0); image != "dev-registry.local/docker.io/library/busybox:1" {
+	if image := containerImage(t, podSpec, "initContainers", 0); image != "dev-registry.local/mirror/docker.io/library/busybox:1" {
 		t.Fatalf("init image = %q, want mirrored", image)
 	}
-	if image := containerImage(t, podSpec, "containers", 0); image != "dev-registry.local/ghcr.io/fluxcd/source-controller:v1.5.0" {
+	if image := containerImage(t, podSpec, "containers", 0); image != "dev-registry.local/mirror/ghcr.io/fluxcd/source-controller:v1.5.0" {
 		t.Fatalf("container image = %q, want mirrored", image)
 	}
-	if image := containerImage(t, podSpec, "ephemeralContainers", 0); image != "dev-registry.local/docker.io/library/alpine:3" {
+	if image := containerImage(t, podSpec, "ephemeralContainers", 0); image != "dev-registry.local/mirror/docker.io/library/alpine:3" {
 		t.Fatalf("ephemeral image = %q, want already-mirrored image unchanged", image)
 	}
 	if string(records[1].Value) != `not json` {
@@ -141,27 +141,27 @@ func TestRewriteImageFields(t *testing.T) {
 		"spec": map[string]any{
 			"containers": []any{
 				map[string]any{"image": "ghcr.io/example/app:v1"},
-				map[string]any{"image": "dev-registry.local/docker.io/library/alpine:3"},
+				map[string]any{"image": "dev-registry.local/mirror/docker.io/library/alpine:3"},
 				map[string]any{"image": ""},
 			},
 			"notImage": "ghcr.io/example/ignored:v1",
 		},
 	}
 
-	if !rewriteImageFields(obj, "dev-registry.local") {
+	if !rewriteImageFields(obj, "dev-registry.local/mirror") {
 		t.Fatalf("rewriteImageFields reported no changes")
 	}
-	if got, want := obj["image"], "dev-registry.local/docker.io/library/top-level:1"; got != want {
+	if got, want := obj["image"], "dev-registry.local/mirror/docker.io/library/top-level:1"; got != want {
 		t.Fatalf("top-level image = %v, want %v", got, want)
 	}
 	spec := obj["spec"].(map[string]any)
 	containers := spec["containers"].([]any)
 	first := containers[0].(map[string]any)
-	if got, want := first["image"], "dev-registry.local/ghcr.io/example/app:v1"; got != want {
+	if got, want := first["image"], "dev-registry.local/mirror/ghcr.io/example/app:v1"; got != want {
 		t.Fatalf("nested image = %v, want %v", got, want)
 	}
 	second := containers[1].(map[string]any)
-	if got, want := second["image"], "dev-registry.local/docker.io/library/alpine:3"; got != want {
+	if got, want := second["image"], "dev-registry.local/mirror/docker.io/library/alpine:3"; got != want {
 		t.Fatalf("already mirrored image = %v, want unchanged %v", got, want)
 	}
 	third := containers[2].(map[string]any)
@@ -312,7 +312,7 @@ func TestWriteSnapshotWritesBytes(t *testing.T) {
 				t.Fatalf("unmarshal Deployment: %v", err)
 			}
 			podSpec := obj["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
-			if image := containerImage(t, podSpec, "containers", 0); image != "dev-registry.local/ghcr.io/fluxcd/source-controller:v1.5.0" {
+			if image := containerImage(t, podSpec, "containers", 0); image != "dev-registry.local/mirror/ghcr.io/fluxcd/source-controller:v1.5.0" {
 				t.Fatalf("seeded Deployment image = %q, want mirrored", image)
 			}
 		default:

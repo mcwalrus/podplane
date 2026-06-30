@@ -16,6 +16,7 @@ type ClusterSummary struct {
 	ID         string                          `mapstructure:"id" json:"id"`
 	Name       string                          `mapstructure:"name" json:"name"`
 	OIDC       clusterconfig.OIDC              `mapstructure:"oidc" json:"oidc"`
+	Registry   clusterconfig.Registry          `mapstructure:"registry" json:"registry,omitempty"`
 	Kubernetes clusterconfig.Kubernetes        `mapstructure:"kubernetes" json:"kubernetes"`
 	Secrets    clusterconfig.Secrets           `mapstructure:"secrets" json:"secrets,omitempty"`
 	Components ClusterSummaryClusterComponents `mapstructure:"components" json:"components,omitempty"`
@@ -34,6 +35,7 @@ func ClusterSummaryFromConfig(cluster *clusterconfig.ClusterConfig) ClusterSumma
 		ID:         cluster.Cluster.ID,
 		Name:       cluster.Cluster.Name,
 		OIDC:       cluster.Cluster.OIDC,
+		Registry:   cluster.Cluster.Registry,
 		Kubernetes: cluster.Cluster.Kubernetes,
 		Secrets:    secretsSummary(cluster.Cluster.Secrets),
 		Components: ClusterSummaryClusterComponents{
@@ -94,6 +96,9 @@ func (c *Config) SetClusterSummary(summary ClusterSummary, local bool) error {
 		"name":       summary.Name,
 		"oidc":       summary.OIDC,
 		"kubernetes": summary.Kubernetes,
+	}
+	if summary.Registry.Hostname != "" || summary.Registry.Ingress.Enabled {
+		cluster["registry"] = summary.Registry
 	}
 	if len(summary.Secrets.Providers) > 0 || summary.Secrets.DefaultProvider != "" {
 		cluster["secrets"] = summary.Secrets

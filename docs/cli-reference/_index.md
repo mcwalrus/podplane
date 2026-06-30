@@ -34,6 +34,7 @@ These options are available on all commands:
 
 ## App Commands
 
+- [podplane push](push.md) – Push a local image to the cluster registry.
 - [podplane deploy](deploy.md) – Deploy an app using a template.
 - [podplane remove](remove.md) – Remove a previously deployed app.
 - [podplane secret](secret.md) – Manage application secrets through the Podplane operator.

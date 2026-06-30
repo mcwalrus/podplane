@@ -45,8 +45,8 @@ func ValidateSeed(seed Seed) error {
 
 // ValidateComponents validates the optional components configuration.
 func ValidateComponents(components Components) error {
-	if components.Registry != nil && components.Registry.Mirror.Enabled && components.Registry.Mirror.Hostname == "" {
-		return fmt.Errorf("components.registry.mirror.hostname is required when mirror.enabled is true")
+	if components.Registry != nil && components.Registry.Mirror.Prefix != "" {
+		components.Registry.Mirror.Prefix = CleanRegistryMirrorPrefix(components.Registry.Mirror.Prefix)
 	}
 	if components.Source == nil {
 		return nil
@@ -145,6 +145,9 @@ func Validate(cfg *ClusterConfig) error {
 	}
 	if cfg.Cluster.OIDC.IssuerURL == "" {
 		return fmt.Errorf("cluster.oidc.issuer_url is required")
+	}
+	if cfg.Cluster.Registry.Hostname == "" && cfg.Cluster.Components.Registry != nil && cfg.Cluster.Components.Registry.Mirror.Enabled && cfg.Cluster.Components.Registry.Mirror.Hostname == "" {
+		return fmt.Errorf("cluster.registry.hostname is required when components.registry.mirror.enabled is true without components.registry.mirror.hostname")
 	}
 	if err := ValidateSeed(cfg.Cluster.Seed); err != nil {
 		return fmt.Errorf("cluster.seed: %w", err)

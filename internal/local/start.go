@@ -660,6 +660,10 @@ func (m *Local) WriteLocalClusterConfig(clusterID, oidcIssuerURL, oidcCACertPath
         "provider": { "kind": "local" }
       }
     ],
+    "registry": {
+      "hostname": %q,
+      "ingress": { "enabled": false }
+    },
     "secrets": {
       "default_provider": "local-fakevault",
       "providers": {
@@ -679,14 +683,13 @@ func (m *Local) WriteLocalClusterConfig(clusterID, oidcIssuerURL, oidcCACertPath
 %s
       "registry": {
         "mirror": {
-          "enabled": true,
-          "hostname": %q
+          "enabled": true
         }
       }
     }
   }
 }
-`, clusterID, clusterID, "local-"+clusterID, oidcIssuerURL, clusterID, oidcCACertPath, clusterID+".localhost", vaultAddress, apiHostname, apiPort, seedBlock, componentsSourceBlock, registryHostname)
+`, clusterID, clusterID, "local-"+clusterID, oidcIssuerURL, clusterID, oidcCACertPath, clusterID+".localhost", registryHostname, vaultAddress, apiHostname, apiPort, seedBlock, componentsSourceBlock)
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		return "", fmt.Errorf("write %s: %w", path, err)
 	}
