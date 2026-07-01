@@ -13,6 +13,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/podplane/podplane/internal/execwrap"
@@ -57,9 +58,12 @@ func startRegistryPortForward(ctx context.Context, kubeContext, kubeconfig strin
 	if err != nil {
 		return "", nil, err
 	}
-	args := append(kubectl.Args(kubeContext, kubeconfig), "-n", zotRegistryNamespace, "port-forward", "svc/"+zotRegistryService, "127.0.0.1:"+port+":"+zotRegistryPort)
+	args := append(kubectl.Args(kubeContext, kubeconfig), "-n", zotRegistryNamespace, "port-forward", "--address", "127.0.0.1", "svc/"+zotRegistryService, port+":"+zotRegistryPort)
 	cmd := execwrap.Command("kubectl", args...)
-	cmd.Stdout = stderr
+	pfStdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", nil, err
+	}
 	pfStderr, err := cmd.StderrPipe()
 	if err != nil {
 		return "", nil, err
@@ -74,21 +78,7 @@ func startRegistryPortForward(ctx context.Context, kubeContext, kubeconfig strin
 		_ = cmd.Wait()
 	}
 	ready := make(chan error, 1)
-	go func() {
-		scanner := bufio.NewScanner(pfStderr)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.Contains(line, "Forwarding from") {
-				ready <- nil
-				return
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			ready <- err
-			return
-		}
-		ready <- fmt.Errorf("registry port-forward exited before becoming ready")
-	}()
+	go waitForPortForwardReady([]io.Reader{pfStdout, pfStderr}, stderr, ready)
 	select {
 	case err := <-ready:
 		if err != nil {
@@ -103,6 +93,45 @@ func startRegistryPortForward(ctx context.Context, kubeContext, kubeconfig strin
 		stop()
 		return "", nil, ctx.Err()
 	}
+}
+
+// waitForPortForwardReady watches kubectl port-forward output until it reports
+// a ready forwarding line or all output streams close before readiness.
+func waitForPortForwardReady(readers []io.Reader, output io.Writer, ready chan<- error) {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	reported := false
+	report := func(err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if reported {
+			return
+		}
+		reported = true
+		ready <- err
+	}
+
+	wg.Add(len(readers))
+	for _, reader := range readers {
+		go func(reader io.Reader) {
+			defer wg.Done()
+			scanner := bufio.NewScanner(reader)
+			for scanner.Scan() {
+				line := scanner.Text()
+				if output != nil {
+					_, _ = fmt.Fprintln(output, line)
+				}
+				if strings.Contains(line, "Forwarding from") {
+					report(nil)
+				}
+			}
+			if err := scanner.Err(); err != nil {
+				report(err)
+			}
+		}(reader)
+	}
+	wg.Wait()
+	report(fmt.Errorf("registry port-forward exited before becoming ready"))
 }
 
 // freeLocalPort reserves and releases an available loopback TCP port.

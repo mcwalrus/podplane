@@ -5,6 +5,8 @@
 package netsyseed
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/podplane/podplane/internal/clusterconfig"
@@ -12,7 +14,7 @@ import (
 
 func TestBuildPlatformComponentsValuesLocalDomain(t *testing.T) {
 	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{Domains: []clusterconfig.Domain{{Zone: "internaltools.localhost", Provider: clusterconfig.DomainProvider{Kind: "local"}}}}}
-	values, err := buildPlatformComponentsValues(cfg)
+	values, err := buildPlatformComponentsValues(cfg, buildPlatformComponentsValuesOptions{})
 	if err != nil {
 		t.Fatalf("buildPlatformComponentsValues error = %v", err)
 	}
@@ -34,7 +36,7 @@ func TestBuildPlatformComponentsValuesAWSProviderEnablesEBSCSI(t *testing.T) {
 	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
 		Providers: []clusterconfig.Provider{{Kind: "aws"}},
 	}}
-	values, err := buildPlatformComponentsValues(cfg)
+	values, err := buildPlatformComponentsValues(cfg, buildPlatformComponentsValuesOptions{})
 	if err != nil {
 		t.Fatalf("buildPlatformComponentsValues error = %v", err)
 	}
@@ -55,7 +57,7 @@ func TestBuildPlatformComponentsValuesSecretsProvidersEnableCSIComponents(t *tes
 			"local-fakevault":     {Kind: "openbao"},
 		}},
 	}}
-	values, err := buildPlatformComponentsValues(cfg)
+	values, err := buildPlatformComponentsValues(cfg, buildPlatformComponentsValuesOptions{})
 	if err != nil {
 		t.Fatalf("buildPlatformComponentsValues error = %v", err)
 	}
@@ -110,7 +112,7 @@ func TestBuildPlatformComponentsValuesRegistryMirror(t *testing.T) {
 			},
 		},
 	}}
-	values, err := buildPlatformComponentsValues(cfg)
+	values, err := buildPlatformComponentsValues(cfg, buildPlatformComponentsValuesOptions{})
 	if err != nil {
 		t.Fatalf("buildPlatformComponentsValues error = %v", err)
 	}
@@ -143,7 +145,7 @@ func TestBuildPlatformComponentsValuesZotRegistry(t *testing.T) {
 			Region:  "us-east-1",
 		}},
 	}}
-	values, err := buildPlatformComponentsValues(cfg)
+	values, err := buildPlatformComponentsValues(cfg, buildPlatformComponentsValuesOptions{})
 	if err != nil {
 		t.Fatalf("buildPlatformComponentsValues error = %v", err)
 	}
@@ -157,6 +159,9 @@ func TestBuildPlatformComponentsValuesZotRegistry(t *testing.T) {
 	}
 	if got, want := storage["region"], "us-east-1"; got != want {
 		t.Fatalf("storage.region = %v, want %v", got, want)
+	}
+	if _, ok := storage["skipVerify"]; ok {
+		t.Fatalf("storage.skipVerify should not be set for provider-backed clusters")
 	}
 	oidc := zotRegistry["oidc"].(map[string]any)
 	if got, want := oidc["issuer"], "https://auth.example.com"; got != want {
@@ -174,12 +179,16 @@ func TestBuildPlatformComponentsValuesZotRegistry(t *testing.T) {
 }
 
 func TestBuildPlatformComponentsValuesZotRegistryLocalBucket(t *testing.T) {
+	caPath := filepath.Join(t.TempDir(), "oidc-ca.pem")
+	if err := os.WriteFile(caPath, []byte("-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
 		ID:       "dev",
-		OIDC:     clusterconfig.OIDC{IssuerURL: "https://oidc.localhost"},
+		OIDC:     clusterconfig.OIDC{IssuerURL: "https://oidc.localhost", CACert: caPath},
 		Registry: clusterconfig.Registry{Hostname: "dev-registry.local"},
 	}}
-	values, err := buildPlatformComponentsValues(cfg)
+	values, err := buildPlatformComponentsValues(cfg, buildPlatformComponentsValuesOptions{ZotRegistryEndpoint: "https://10.0.2.99:19443/s3/cache"})
 	if err != nil {
 		t.Fatalf("buildPlatformComponentsValues error = %v", err)
 	}
@@ -190,6 +199,24 @@ func TestBuildPlatformComponentsValuesZotRegistryLocalBucket(t *testing.T) {
 	}
 	if got, want := storage["region"], "local"; got != want {
 		t.Fatalf("storage.region = %v, want %v", got, want)
+	}
+	if got, want := storage["endpoint"], "https://10.0.2.99:19443/s3/cache"; got != want {
+		t.Fatalf("storage.endpoint = %v, want %v", got, want)
+	}
+	if got, want := storage["secure"], true; got != want {
+		t.Fatalf("storage.secure = %v, want %v", got, want)
+	}
+	if got, want := storage["skipVerify"], true; got != want {
+		t.Fatalf("storage.skipVerify = %v, want %v", got, want)
+	}
+	oidc := zotRegistry["oidc"].(map[string]any)
+	if got := oidc["certificateAuthority"]; got == "" {
+		t.Fatal("oidc.certificateAuthority is empty, want local CA contents")
+	}
+	zot := componentValues(values, "zot-registry")["zot"].(map[string]any)
+	hostAliases := zot["hostAliases"].([]map[string]any)
+	if got, want := hostAliases[0]["ip"], "10.0.2.99"; got != want {
+		t.Fatalf("hostAliases[0].ip = %v, want %v", got, want)
 	}
 }
 
@@ -202,7 +229,7 @@ func TestBuildPlatformComponentsValuesGroupsAWSSolvers(t *testing.T) {
 			{Zone: "example.net", Provider: clusterconfig.DomainProvider{Kind: "aws", Account: "123", HostedZoneID: "Z123", RoleARN: "arn:aws:iam::123:role/cert-manager"}},
 		},
 	}}
-	values, err := buildPlatformComponentsValues(cfg)
+	values, err := buildPlatformComponentsValues(cfg, buildPlatformComponentsValuesOptions{})
 	if err != nil {
 		t.Fatalf("buildPlatformComponentsValues error = %v", err)
 	}
@@ -232,7 +259,7 @@ func TestBuildPlatformComponentsValuesCloudflareSecretSync(t *testing.T) {
 			Kind: "cloudflare", SecretName: "cloudflare-dns01", SecretProviderClassName: "cloudflare-dns01",
 		}}},
 	}}
-	values, err := buildPlatformComponentsValues(cfg)
+	values, err := buildPlatformComponentsValues(cfg, buildPlatformComponentsValuesOptions{})
 	if err != nil {
 		t.Fatalf("buildPlatformComponentsValues error = %v", err)
 	}
@@ -253,7 +280,7 @@ func TestBuildPlatformComponentsValuesAmbiguousAWSRegion(t *testing.T) {
 		Providers: []clusterconfig.Provider{{Kind: "aws", Region: "us-east-1"}, {Kind: "aws", Region: "us-west-2"}},
 		Domains:   []clusterconfig.Domain{{Zone: "example.com", Provider: clusterconfig.DomainProvider{Kind: "aws"}}},
 	}}
-	if _, err := buildPlatformComponentsValues(cfg); err == nil {
+	if _, err := buildPlatformComponentsValues(cfg, buildPlatformComponentsValuesOptions{}); err == nil {
 		t.Fatalf("expected ambiguous AWS provider error")
 	}
 }

@@ -251,7 +251,8 @@ func (m *Local) Start(opts StartOptions) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("failed to derive host-side deps URL for seeding: %w", err)
 		}
-		if err := m.ensureInitialNetsySnapshot(stashPath, depsServerURLHost, seed); err != nil {
+		zotRegistryEndpoint := fmt.Sprintf("https://%s:%d/s3/cache", m.vm.NodeIP(), localVMForwardPortToLocalServerHTTPS)
+		if err := m.ensureInitialNetsySnapshot(stashPath, depsServerURLHost, zotRegistryEndpoint, seed); err != nil {
 			return "", fmt.Errorf("seed local Netsy snapshot: %w", err)
 		}
 		// Create the VM, using the cached OS image from the vmconfig manifest as
@@ -790,9 +791,5 @@ func replaceAddrHost(addr, host string) string {
 // HostOIDCIssuerURL returns the OIDC issuer URL as reachable from the host
 // machine (where the CLI itself runs), not from inside the guest VM.
 func (m *Local) HostOIDCIssuerURL() (string, error) {
-	port, err := m.LocalServerHTTPSPort()
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("https://%s:%s/oidc", localOIDCHostname, port), nil
+	return fmt.Sprintf("https://%s:%d/oidc", localOIDCHostname, localVMForwardPortToLocalServerHTTPS), nil
 }

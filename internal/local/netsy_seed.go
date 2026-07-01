@@ -20,7 +20,7 @@ import (
 // cluster's Netsy datastore with an initial snapshot rendered from the
 // cluster config, when seed name is not "none" and the bucket dir is
 // empty. Existing local Netsy state is never overwritten.
-func (m *Local) ensureInitialNetsySnapshot(clusterConfigPath, depsBaseURL string, seed clusterconfig.Seed) error {
+func (m *Local) ensureInitialNetsySnapshot(clusterConfigPath, depsBaseURL, zotRegistryEndpoint string, seed clusterconfig.Seed) error {
 	seedName, err := seeds.ParseName(seed.Name)
 	if err != nil {
 		return err
@@ -56,8 +56,9 @@ func (m *Local) ensureInitialNetsySnapshot(clusterConfigPath, depsBaseURL string
 	}
 	var data bytes.Buffer
 	if err := netsyseed.WriteSnapshot(&data, netsyseed.SnapshotOptions{
-		ClusterConfigPath: clusterConfigPath,
-		SeedPath:          seedPath,
+		ClusterConfigPath:   clusterConfigPath,
+		SeedPath:            seedPath,
+		ZotRegistryEndpoint: zotRegistryEndpoint,
 	}); err != nil {
 		return err
 	}

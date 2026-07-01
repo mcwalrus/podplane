@@ -375,6 +375,7 @@ func NewServer(pidFile pid.PIDFile, c ConfigSource, addr string, port int, vault
 		return nil, fmt.Errorf("failed to build s3 handler: %w", err)
 	}
 	httpMux.Handle("/s3/data/", http.StripPrefix("/s3/data", s3Handler))
+	httpsMux.Handle("/s3/data/", http.StripPrefix("/s3/data", s3Handler))
 
 	// /s3/cache/ — fake S3 for cache-backed buckets.
 	s3CacheHandler, err := s3fake.BucketHandler("registry", w.registryDir)
@@ -382,6 +383,7 @@ func NewServer(pidFile pid.PIDFile, c ConfigSource, addr string, port int, vault
 		return nil, fmt.Errorf("failed to build cache s3 handler: %w", err)
 	}
 	httpMux.Handle("/s3/cache/", http.StripPrefix("/s3/cache", s3CacheHandler))
+	httpsMux.Handle("/s3/cache/", http.StripPrefix("/s3/cache", s3CacheHandler))
 
 	// /vault/ — fake Vault/OpenBao API for local Secrets Store CSI usage.
 	validator := &fakevault.KubernetesTokenValidator{

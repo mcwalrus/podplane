@@ -227,6 +227,13 @@ func NewOIDCHTTPClient(c *config.Config, cluster *clusterconfig.ClusterConfig) (
 	}
 	issuerURL, issuerErr := url.Parse(cluster.Cluster.OIDC.IssuerURL)
 	if issuerErr == nil && strings.EqualFold(issuerURL.Hostname(), "oidc.localhost") {
+		localHTTPSPort := issuerURL.Port()
+		if localHTTPSPort == "19443" {
+			manager := local.NewManager(c, cluster.Cluster.ID)
+			if port, err := manager.LocalServerHTTPSPort(); err == nil && port != "" {
+				localHTTPSPort = port
+			}
+		}
 		// Local clusters use a fake OIDC server run by the Podplane CLI at oidc.localhost
 		// Some host resolvers do not treat subdomains of localhost as loopback.
 		// Dial the local fake OIDC issuer on 127.0.0.1 while preserving the
@@ -235,6 +242,9 @@ func NewOIDCHTTPClient(c *config.Config, cluster *clusterconfig.ClusterConfig) (
 		transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 			host, port, err := net.SplitHostPort(address)
 			if err == nil && strings.EqualFold(host, "oidc.localhost") {
+				if localHTTPSPort != "" {
+					port = localHTTPSPort
+				}
 				address = net.JoinHostPort("127.0.0.1", port)
 			}
 			return dialer.DialContext(ctx, network, address)

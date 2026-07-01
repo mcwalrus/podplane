@@ -162,11 +162,7 @@ func (l *Local) OIDCServerURL(hostAddr string) (string, error) {
 	if hostAddr == "" {
 		return "", fmt.Errorf("hostAddr must be set")
 	}
-	port, err := l.LocalServerHTTPSPort()
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("https://%s:%s/oidc", localOIDCHostname, port), nil
+	return fmt.Sprintf("https://%s:%d/oidc", localOIDCHostname, localVMForwardPortToLocalServerHTTPS), nil
 }
 
 // OIDCCACertPath returns the local server CA certificate path for the fake

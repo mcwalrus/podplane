@@ -244,7 +244,11 @@ do
   [ "$host" = "localhost" ] && continue
   [[ "$host" =~ ^[0-9.]+$ ]] && continue
   if ! grep -Eq "[[:space:]]${host}([[:space:]]|$)" /etc/hosts; then
-    echo "10.0.2.2 ${host}" >> /etc/hosts
+    if [ "$host" = "oidc.localhost" ]; then
+      echo "127.0.0.1 ${host}" >> /etc/hosts
+    else
+      echo "10.0.2.2 ${host}" >> /etc/hosts
+    fi
   fi
 done
 

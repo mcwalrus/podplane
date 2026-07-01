@@ -6,6 +6,8 @@ package netsyseed
 
 import (
 	"fmt"
+	"net/url"
+	"os"
 	"sort"
 	"strings"
 
@@ -17,9 +19,15 @@ const (
 	selfsignedIssuerName = "platform-ingress-selfsigned-clusterissuer"
 )
 
+// buildPlatformComponentsValuesOptions carries runtime-only inputs that should
+// not be persisted in cluster config.
+type buildPlatformComponentsValuesOptions struct {
+	ZotRegistryEndpoint string
+}
+
 // buildPlatformComponentsValues derives platform-components Helm values from
 // user-facing cluster config. The returned structure is JSON/YAML marshalable.
-func buildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig) (map[string]any, error) {
+func buildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig, opts buildPlatformComponentsValuesOptions) (map[string]any, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("cluster config is required")
 	}
@@ -35,23 +43,57 @@ func buildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig) (map[string
 	}
 	if cfg.Cluster.Registry.Hostname != "" {
 		componentValues = ensureChildMap(components, "values")
-		componentValues["zot-registry"] = map[string]any{
+		isLocal := len(cfg.Cluster.Providers) == 0
+		zotStorage := map[string]any{
+			"bucket": registryBucketName(cfg.Cluster),
+			"region": registryRegion(cfg.Cluster),
+		}
+		if isLocal {
+			if opts.ZotRegistryEndpoint == "" {
+				return nil, fmt.Errorf("zot registry endpoint is required for local registry seed values")
+			}
+			zotStorage["endpoint"] = opts.ZotRegistryEndpoint
+			zotStorage["secure"] = true
+			zotStorage["skipVerify"] = true
+			zotStorage["forcePathStyle"] = true
+			zotStorage["accessKeyID"] = "test"
+			zotStorage["secretAccessKey"] = "test"
+		}
+		zotOIDC := map[string]any{
+			"issuer":        cfg.Cluster.OIDC.IssuerURL,
+			"audience":      cfg.ResolvedClientID(),
+			"usernameClaim": cfg.ResolvedUsernameClaim(),
+			"groupsClaim":   cfg.ResolvedGroupsClaim(),
+		}
+		if ca := cfg.Cluster.OIDC.CACert; strings.HasPrefix(strings.TrimSpace(ca), "-----BEGIN") {
+			zotOIDC["certificateAuthority"] = ca
+		} else if ca != "" && !strings.Contains(ca, "://") {
+			if contents, err := os.ReadFile(ca); err == nil {
+				zotOIDC["certificateAuthority"] = string(contents)
+			}
+		}
+		entry := map[string]any{
 			"platform": map[string]any{
 				"zotRegistry": map[string]any{
 					"registryHostname": cfg.Cluster.Registry.Hostname,
-					"storage": map[string]any{
-						"bucket": registryBucketName(cfg.Cluster),
-						"region": registryRegion(cfg.Cluster),
-					},
-					"oidc": map[string]any{
-						"issuer":        cfg.Cluster.OIDC.IssuerURL,
-						"audience":      cfg.ResolvedClientID(),
-						"usernameClaim": cfg.ResolvedUsernameClaim(),
-						"groupsClaim":   cfg.ResolvedGroupsClaim(),
-					},
+					"storage":          zotStorage,
+					"oidc":             zotOIDC,
 				},
 			},
 		}
+		if isLocal {
+			endpoint, err := url.Parse(opts.ZotRegistryEndpoint)
+			if err != nil || endpoint.Hostname() == "" {
+				return nil, fmt.Errorf("invalid zot registry endpoint %q", opts.ZotRegistryEndpoint)
+			}
+			entry["zot"] = map[string]any{
+				"hostAliases": []map[string]any{{
+					"ip":        endpoint.Hostname(),
+					"hostnames": []string{"oidc.localhost"},
+				}},
+			}
+		}
+		componentValues["zot-registry"] = entry
 	}
 	applyProviderComponents(components, cfg.Cluster.Providers)
 	applySecretsComponents(components, cfg.Cluster.ID, cfg.Cluster.Secrets)

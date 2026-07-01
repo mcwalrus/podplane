@@ -26,10 +26,11 @@ const (
 )
 
 type SnapshotOptions struct {
-	Context           context.Context
-	ClusterConfigPath string
-	SeedPath          string
-	ValuesFile        string
+	Context             context.Context
+	ClusterConfigPath   string
+	SeedPath            string
+	ValuesFile          string
+	ZotRegistryEndpoint string
 }
 
 // WriteSnapshot seeds a Netsy snapshot with platform-components values derived
@@ -42,7 +43,7 @@ func WriteSnapshot(w io.Writer, opts SnapshotOptions) error {
 	if err != nil {
 		return err
 	}
-	values, err := buildPlatformComponentsValues(cluster)
+	values, err := buildPlatformComponentsValues(cluster, buildPlatformComponentsValuesOptions{ZotRegistryEndpoint: opts.ZotRegistryEndpoint})
 	if err != nil {
 		return err
 	}

@@ -77,7 +77,7 @@ func TestEnsureInitialNetsySnapshotNoneSkips(t *testing.T) {
 	dir := t.TempDir()
 	m := &Local{dataDir: dir, clusterID: "dev"}
 	cfgPath := writeMinimalLocalClusterConfig(t, dir, "dev")
-	if err := m.ensureInitialNetsySnapshot(cfgPath, "", clusterconfig.Seed{Name: seeds.None}); err != nil {
+	if err := m.ensureInitialNetsySnapshot(cfgPath, "", "", clusterconfig.Seed{Name: seeds.None}); err != nil {
 		t.Fatalf("ensureInitialNetsySnapshot: %v", err)
 	}
 	bucket := localS3BucketDir(dir, localNetsyBucketName("dev"))
@@ -101,7 +101,7 @@ func TestEnsureInitialNetsySnapshotSkipsNonEmptyBucket(t *testing.T) {
 	}
 	cfgPath := writeMinimalLocalClusterConfig(t, dir, "dev")
 
-	if err := m.ensureInitialNetsySnapshot(cfgPath, "http://127.0.0.1:0", clusterconfig.Seed{Name: seeds.Recommended, Version: testSeedVersion}); err != nil {
+	if err := m.ensureInitialNetsySnapshot(cfgPath, "http://127.0.0.1:0", "https://10.0.2.15:19443/s3/cache", clusterconfig.Seed{Name: seeds.Recommended, Version: testSeedVersion}); err != nil {
 		t.Fatalf("ensureInitialNetsySnapshot: %v", err)
 	}
 	// Existing file must be untouched (a real seed would have hit a server
@@ -136,7 +136,7 @@ func TestEnsureInitialNetsySnapshotWritesSnapshot(t *testing.T) {
 	}))
 	defer server.Close()
 
-	if err := m.ensureInitialNetsySnapshot(cfgPath, server.URL, clusterconfig.Seed{Name: seeds.Recommended, Version: testSeedVersion}); err != nil {
+	if err := m.ensureInitialNetsySnapshot(cfgPath, server.URL, "https://10.0.2.15:19443/s3/cache", clusterconfig.Seed{Name: seeds.Recommended, Version: testSeedVersion}); err != nil {
 		t.Fatalf("ensureInitialNetsySnapshot: %v", err)
 	}
 	want := filepath.Join(localS3BucketDir(dir, localNetsyBucketName("dev")), "bootstrap.netsy")
