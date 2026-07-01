@@ -18,9 +18,18 @@ func resolvePushToken(c *config.Config, clusterID string, local bool, kubeContex
 	if err != nil {
 		return "", err
 	}
+	authConfig := c
+	if local {
+		localAuthConfig, restoreKeyringPass, err := config.InitWithLocalKeyring()
+		if err != nil {
+			return "", err
+		}
+		defer restoreKeyringPass()
+		authConfig = localAuthConfig
+	}
 	sub := kubectl.SubFromCredentialsKey(user, clusterID, local)
 	if sub == "" {
-		entries, err := c.AuthListByCluster(clusterID, local)
+		entries, err := authConfig.AuthListByCluster(clusterID, local)
 		if err != nil {
 			return "", err
 		}
@@ -31,5 +40,5 @@ func resolvePushToken(c *config.Config, clusterID string, local bool, kubeContex
 	if sub == "" {
 		return "", fmt.Errorf("could not resolve cached Podplane auth for cluster %q; run `podplane login`", clusterID)
 	}
-	return clusterauth.ResolveToken(c, clusterID, sub)
+	return clusterauth.ResolveToken(authConfig, clusterID, sub)
 }
