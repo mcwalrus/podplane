@@ -18,12 +18,15 @@ as AWS Secrets Manager, Google Secret Manager, or OpenBao. Commands that list or
 return secrets show metadata only; they do not print secret values.
 
 ```bash
-podplane secret <command> --for <secret-provider-class-name> [flags]
+podplane secret create --for <app-name> <key> [flags]
+podplane secret update --for <app-name> <key> [flags]
+podplane secret list --for <app-name> [flags]
 ```
 
 `--for` selects the app or workload the secret belongs to. This should match the
-SecretProviderClass name used by the workload. Podplane combines that name with
-the selected secrets provider:
+SecretProviderClass name used by the workload. For apps deployed with
+`podplane deploy --name <app-name>`, pass that same app name here. Podplane
+combines that name with the selected secrets provider:
 
 ```text
 <provider-name>.<secret-provider-class-name>
@@ -90,7 +93,7 @@ podplane secret destroy database-url --for web-api
 
 | Flag | Description |
 | --- | --- |
-| `--for string` | App/workload SecretProviderClass name that scopes the secret. Required. |
+| `--for string` | Name of the app deployment SecretProviderClass that scopes the secret. Required. |
 | `--provider string` | Secrets provider name. Defaults to the cluster default secrets provider. |
 | `-n, --namespace string` | Kubernetes namespace. Defaults to the current kubeconfig namespace, or `default`. |
 | `--context string` | The kubeconfig context to use. |

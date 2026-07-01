@@ -15,9 +15,13 @@ import (
 // newSecretCreateCmd builds the secret create command.
 func newSecretCreateCmd(c *config.Config) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "create KEY",
+		Use:   "create --for APP_NAME KEY",
 		Short: "Create a secret provider key/value",
-		Args:  cobra.ExactArgs(1),
+		Example: "  # Create a secret for the app deployed with `podplane deploy --name hello`\n" +
+			"  podplane secret create --for hello secure-message\n\n" +
+			"  # Mount it into the same app at /var/run/podplane/secrets/secure-message\n" +
+			"  podplane deploy web --name hello --secret secure-message",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if secretFlags.DryRun != "" && secretFlags.DryRun != "client" {
 				return fmt.Errorf("--dry-run must be client when set")

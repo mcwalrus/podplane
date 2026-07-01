@@ -46,7 +46,7 @@ func newSecretCmd(c *config.Config) *cobra.Command {
 		Long:  `Manage application secrets through the Podplane operator secrets API. Secret values are encrypted client-side before they are sent to Kubernetes.`,
 	}
 	cmd.PersistentFlags().StringVar(&secretFlags.Provider, "provider", "", "Secrets provider name (defaults to the cluster default provider)")
-	cmd.PersistentFlags().StringVar(&secretFlags.For, "for", "", "SecretProviderClass name that scopes the secret")
+	cmd.PersistentFlags().StringVar(&secretFlags.For, "for", "", "Name of the app deployment SecretProviderClass that scopes the secret")
 	cmd.PersistentFlags().StringVarP(&secretFlags.Namespace, "namespace", "n", "", "Kubernetes namespace (defaults to the current context namespace)")
 	cmd.PersistentFlags().StringVar(&secretFlags.Context, "context", "", "The name of the kubeconfig context to use")
 	cmd.PersistentFlags().StringVar(&secretFlags.Kubeconfig, "kubeconfig", "", "Path to the kubeconfig file")

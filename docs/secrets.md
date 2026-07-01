@@ -10,6 +10,31 @@ Podplane Secrets makes it easy for developers to store application secrets secur
 
 It is designed for values such as database URLs/passwords, API tokens/keys/passwords, and provider credentials that should not be committed to Git, stored in Helm values, printed in shell history, or written into ordinary Kubernetes manifests or etcd/Netsy.
 
+## Tutorial
+
+When you run `podplane local start` it will print an example deploy command:
+
+```bash
+podplane deploy web --name hello \
+  --image default-registry.local/mirror/ghcr.io/podplane/hello:latest \
+  --hostname hello.default.localhost
+```
+
+Let's build on that example to demonstrate how secrets work:
+
+```bash
+podplane secret create --for hello secure-message
+
+podplane deploy web --name hello \
+  --image default-registry.local/mirror/ghcr.io/podplane/hello:latest \
+  --hostname hello.default.localhost \
+  --secret secure-message
+```
+
+Now when you view the hello app in your browser (the deploy command prints the URL), you will see the contents of `secure-message` on the page. Obviously this is for demonstration purposes, do not print secrets in production!
+
+How do these commands work together? You create a new secret `secure-message`, and then you deploy the web template with a secret binding which mounts that secret value as a file at `/var/run/podplane/secrets/secure-message`. The environment variable for the demo `hello` container image allows you to pass an absolute file path to load a file as the contents of the hello message, which is what `-e HELLO_MESSAGE=/var/run/podplane/secrets/secure-message` does.
+
 ## How It Works
 
 Podplane separates secret management into two paths:
