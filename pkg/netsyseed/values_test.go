@@ -59,6 +59,16 @@ func TestBuildPlatformComponentsValuesSecretsProvidersEnableCSIComponents(t *tes
 		t.Fatalf("buildPlatformComponentsValues error = %v", err)
 	}
 	components := values["platform"].(map[string]any)["components"].(map[string]any)
+	crds := components["crds"].(map[string]any)
+	for _, name := range []string{
+		"podplane-operator-crds",
+		"secrets-store-csi-driver-crds",
+	} {
+		crd := crds[name].(map[string]any)
+		if got, want := crd["enabled"], true; got != want {
+			t.Fatalf("crds.%s.enabled = %v, want %v", name, got, want)
+		}
+	}
 	apps := components["apps"].(map[string]any)
 	for _, name := range []string{
 		"podplane-operator",

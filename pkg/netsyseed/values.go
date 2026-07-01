@@ -175,6 +175,9 @@ func applySecretsComponents(components map[string]any, clusterID string, secrets
 	}
 	components["clusterID"] = clusterID
 	components["secrets"] = secretsValues(secrets)
+	crds := ensureChildMap(components, "crds")
+	crds["podplane-operator-crds"] = map[string]any{"enabled": true}
+	crds["secrets-store-csi-driver-crds"] = map[string]any{"enabled": true}
 	apps := ensureChildMap(components, "apps")
 	apps["podplane-operator"] = map[string]any{"enabled": true}
 	apps["secrets-store-csi-driver"] = map[string]any{"enabled": true}
