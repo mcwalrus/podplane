@@ -101,6 +101,7 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 		var stashPath string
 		var cluster *clusterconfig.ClusterConfig
 		hostSetupDone := false
+		configureGitServerAuth := !vmExists
 		if !localStartFollow {
 			kubeContext := kubectl.ContextKey(localClusterID, true)
 			var seedName string
@@ -122,7 +123,7 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 				{Key: "api-ready", Name: "kubernetes ready", Group: "VM", Success: "ready", Expected: 2 * time.Second, Timeout: 2 * time.Minute},
 				{Key: "kubectl", Name: fmt.Sprintf("kubectl works with context %q", kubeContext), Ready: true, Success: "ready"},
 				{Key: "kubectl-test", Name: "kubectl test", Success: "ready", Expected: 2 * time.Second, Timeout: 30 * time.Second},
-				{Key: "local-git-flux-auth", Name: "local git server auth", Exclude: seedName != seeds.Recommended, Success: "configured", Expected: time.Second, Timeout: 30 * time.Second},
+				{Key: "local-git-flux-auth", Name: "local git server auth", Exclude: seedName != seeds.Recommended || !configureGitServerAuth, Success: "configured", Expected: time.Second, Timeout: 30 * time.Second},
 				{Key: "deploy-ready", Name: "podplane deploy can publish apps to this cluster", Ready: true, Success: "ready"},
 				{Key: "ingress-ready", Name: fmt.Sprintf("deployed app hostnames will resolve under *.%s.localhost", localClusterID), Ready: true, Success: "ready"},
 			}
@@ -149,8 +150,10 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 				if testErr := testLocalKubectl(cluster, progress); testErr != nil {
 					return testErr
 				}
-				if authErr := configureLocalGitServerFluxAuth(cluster, manager, progress); authErr != nil {
-					return authErr
+				if configureGitServerAuth {
+					if authErr := configureLocalGitServerFluxAuth(cluster, manager, progress); authErr != nil {
+						return authErr
+					}
 				}
 				hostSetupDone = true
 				if len(checks) > 0 {
@@ -187,8 +190,10 @@ func newLocalStartCmd(c *config.Config) *cobra.Command {
 			if err := testLocalKubectl(cluster, nil); err != nil {
 				return err
 			}
-			if err := configureLocalGitServerFluxAuth(cluster, manager, nil); err != nil {
-				return err
+			if configureGitServerAuth {
+				if err := configureLocalGitServerFluxAuth(cluster, manager, nil); err != nil {
+					return err
+				}
 			}
 		}
 		kubeContext := kubectl.ContextKey(cluster.Cluster.ID, true)
