@@ -28,15 +28,23 @@ func CheckServerRuntimeDependencies() error {
 	return execwrap.Installed([]string{"mkcert"})
 }
 
-// MkcertTrustInstalled reports whether mkcert's local CA is trusted by the
-// host system trust store.
-func MkcertTrustInstalled() (bool, error) {
+// MkcertRootCAPath returns the path to mkcert's local root CA certificate.
+func MkcertRootCAPath() (string, error) {
 	cmd := execwrap.Command("mkcert", "-CAROOT")
 	output, err := cmd.Output()
 	if err != nil {
-		return false, fmt.Errorf("get mkcert CA root: %w", err)
+		return "", fmt.Errorf("get mkcert CA root: %w", err)
 	}
-	rootCAPath := filepath.Join(strings.TrimSpace(string(output)), "rootCA.pem")
+	return filepath.Join(strings.TrimSpace(string(output)), "rootCA.pem"), nil
+}
+
+// MkcertTrustInstalled reports whether mkcert's local CA is trusted by the
+// host system trust store.
+func MkcertTrustInstalled() (bool, error) {
+	rootCAPath, err := MkcertRootCAPath()
+	if err != nil {
+		return false, err
+	}
 	rootCA, err := os.ReadFile(rootCAPath)
 	if err != nil {
 		if os.IsNotExist(err) {

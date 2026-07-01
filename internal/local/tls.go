@@ -102,6 +102,26 @@ func ensureLocalIngressCertificate(dataDir, name string, hosts ...string) (strin
 	return certFile, keyFile, nil
 }
 
+// LocalIngressCACertPath ensures this cluster's local ingress certificate has
+// been generated and returns the CA certificate kubectl should trust for it.
+func (l *Local) LocalIngressCACertPath() (string, error) {
+	if l.clusterID == "" {
+		return "", fmt.Errorf("clusterID must be set")
+	}
+	zone := l.clusterID + ".localhost"
+	if _, _, err := ensureLocalIngressCertificate(l.dataDir, l.clusterID, zone, "*."+zone, LocalKubernetesAPIHostname(l.clusterID)); err != nil {
+		return "", err
+	}
+	rootCAPath, err := MkcertRootCAPath()
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(rootCAPath); err != nil {
+		return "", fmt.Errorf("inspect mkcert root CA %s: %w", rootCAPath, err)
+	}
+	return rootCAPath, nil
+}
+
 // localServerCertificateCoversHosts reports whether an existing certificate can
 // be reused for every requested local server hostname.
 func localServerCertificateCoversHosts(certFile string, hosts ...string) bool {
