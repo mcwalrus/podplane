@@ -76,16 +76,14 @@ func buildPlatformComponentsValues(cfg *clusterconfig.ClusterConfig) (map[string
 		}
 	}
 
-	components["crds"] = map[string]any{
-		"cert-manager-crds": map[string]any{"enabled": true},
-		"traefik-crds":      map[string]any{"enabled": true},
-		"gateway-api-crds":  map[string]any{"enabled": true},
-	}
-	components["apps"] = map[string]any{
-		"cert-manager":   map[string]any{"enabled": true},
-		"platform-certs": map[string]any{"enabled": true},
-		"traefik":        map[string]any{"enabled": true},
-	}
+	crds := ensureChildMap(components, "crds")
+	crds["cert-manager-crds"] = map[string]any{"enabled": true}
+	crds["traefik-crds"] = map[string]any{"enabled": true}
+	crds["gateway-api-crds"] = map[string]any{"enabled": true}
+	apps := ensureChildMap(components, "apps")
+	apps["cert-manager"] = map[string]any{"enabled": true}
+	apps["platform-certs"] = map[string]any{"enabled": true}
+	apps["traefik"] = map[string]any{"enabled": true}
 	if componentValues == nil {
 		componentValues = ensureChildMap(components, "values")
 	}
@@ -173,14 +171,23 @@ func applySecretsComponents(components map[string]any, clusterID string, secrets
 	if len(secrets.Providers) == 0 {
 		return
 	}
-	components["clusterID"] = clusterID
-	components["secrets"] = secretsValues(secrets)
 	crds := ensureChildMap(components, "crds")
 	crds["podplane-operator-crds"] = map[string]any{"enabled": true}
 	crds["secrets-store-csi-driver-crds"] = map[string]any{"enabled": true}
 	apps := ensureChildMap(components, "apps")
 	apps["podplane-operator"] = map[string]any{"enabled": true}
 	apps["secrets-store-csi-driver"] = map[string]any{"enabled": true}
+	componentValues := ensureChildMap(components, "values")
+	componentValues["podplane-operator"] = map[string]any{
+		"podplane": map[string]any{
+			"operator": map[string]any{
+				"config": map[string]any{
+					"cluster": map[string]any{"id": clusterID},
+					"secrets": secretsValues(secrets),
+				},
+			},
+		},
+	}
 	for _, provider := range secrets.Providers {
 		switch provider.Kind {
 		case "aws":

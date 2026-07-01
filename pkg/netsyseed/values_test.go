@@ -48,7 +48,8 @@ func TestBuildPlatformComponentsValuesAWSProviderEnablesEBSCSI(t *testing.T) {
 
 func TestBuildPlatformComponentsValuesSecretsProvidersEnableCSIComponents(t *testing.T) {
 	cfg := &clusterconfig.ClusterConfig{Cluster: clusterconfig.Cluster{
-		ID: "test-cluster",
+		ID:      "test-cluster",
+		Domains: []clusterconfig.Domain{{Zone: "internaltools.localhost", Provider: clusterconfig.DomainProvider{Kind: "local"}}},
 		Secrets: clusterconfig.Secrets{Providers: map[string]clusterconfig.SecretsProvider{
 			"aws-secrets-manager": {Kind: "aws", KeyPrefix: "shared-secrets", ObjectType: "secretsmanager"},
 			"local-fakevault":     {Kind: "openbao"},
@@ -81,10 +82,19 @@ func TestBuildPlatformComponentsValuesSecretsProvidersEnableCSIComponents(t *tes
 			t.Fatalf("apps.%s.enabled = %v, want %v", name, got, want)
 		}
 	}
-	if got, want := components["clusterID"], "test-cluster"; got != want {
-		t.Fatalf("clusterID = %v, want %v", got, want)
+	if _, ok := components["clusterID"]; ok {
+		t.Fatalf("legacy platform.components.clusterID should not be set")
 	}
-	secrets := components["secrets"].(map[string]any)
+	if _, ok := components["secrets"]; ok {
+		t.Fatalf("legacy platform.components.secrets should not be set")
+	}
+	operator := componentValues(values, "podplane-operator")["podplane"].(map[string]any)["operator"].(map[string]any)
+	config := operator["config"].(map[string]any)
+	cluster := config["cluster"].(map[string]any)
+	if got, want := cluster["id"], "test-cluster"; got != want {
+		t.Fatalf("podplane-operator cluster id = %v, want %v", got, want)
+	}
+	secrets := config["secrets"].(map[string]any)
 	providers := secrets["providers"].(map[string]any)
 	provider := providers["aws-secrets-manager"].(map[string]any)
 	if got, want := provider["keyPrefix"], "shared-secrets"; got != want {
