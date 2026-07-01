@@ -181,7 +181,7 @@ func TestLocalIngressProxyShowsPlaceholderForMissingClusterState(t *testing.T) {
 }
 
 func TestWriteLocalClusterConfigUsesReservedKubernetesAPIHost(t *testing.T) {
-	manager := &Local{dataDir: t.TempDir()}
+	manager := newTestLocalManager(t.TempDir(), "dev")
 	componentsSource := &clusterconfig.ComponentsSource{
 		URL: "https://github.com/podplane/components.git",
 		Ref: clusterconfig.ComponentsSourceRef{Tag: "v1.2.3"},

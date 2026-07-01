@@ -351,7 +351,7 @@ func NewServer(pidFile pid.PIDFile, c ConfigSource, addr string, port int, vault
 	if err != nil {
 		return nil, fmt.Errorf("failed to load oidc keypair: %w", err)
 	}
-	oidcIssuerURL := fmt.Sprintf("https://%s:%d/oidc", localOIDCHostname, w.httpsPort)
+	oidcIssuerURL := fmt.Sprintf("https://%s:%d/oidc", localOIDCHostname, localVMForwardPortToLocalServerHTTPS)
 	oidcHandler, err := oidcserver.Handler(oidcIssuerURL, oidcKey, func(clientID string) error {
 		if err := clusterconfig.ValidateClusterID(clientID); err != nil {
 			return err

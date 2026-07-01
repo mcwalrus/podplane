@@ -18,6 +18,7 @@ import (
 	"github.com/netsy-dev/netsy/pkg/datafile"
 	"github.com/podplane/podplane/internal/clusterconfig"
 	"github.com/podplane/podplane/internal/deps"
+	"github.com/podplane/podplane/internal/vm/qemu"
 	"github.com/podplane/podplane/pkg/seeds"
 )
 
@@ -168,7 +169,7 @@ func TestEnsureInitialNetsySnapshotWritesSnapshot(t *testing.T) {
 // value saved in cluster.jsonc.
 func TestGetSeedConfigReadsSavedValue(t *testing.T) {
 	dir := t.TempDir()
-	m := &Local{dataDir: dir}
+	m := newTestLocalManager(dir, "dev")
 	if _, err := m.WriteLocalClusterConfig("dev", "https://oidc.localhost:1/oidc", "/tmp/ca.pem", LocalKubernetesAPIHostname("dev"), 4433, clusterconfig.Seed{Name: seeds.None}, nil); err != nil {
 		t.Fatalf("WriteLocalClusterConfig: %v", err)
 	}
@@ -181,6 +182,13 @@ func TestGetSeedConfigReadsSavedValue(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), `"hostname": "dev-registry.local"`) {
 		t.Fatalf("cluster config should include local registry mirror hostname:\n%s", raw)
+	}
+	wantVaultAddress := fmt.Sprintf(`"address": "https://%s:19443/vault/dev"`, m.vm.NodeIP())
+	if !strings.Contains(string(raw), wantVaultAddress) {
+		t.Fatalf("cluster config should use stable local Vault forward:\n%s", raw)
+	}
+	if strings.Contains(string(raw), `10.0.2.2`) {
+		t.Fatalf("cluster config should not persist host-side local server addresses:\n%s", raw)
 	}
 	m.clusterID = "dev"
 	seed, err := m.SeedConfig()
@@ -203,12 +211,24 @@ func TestSeedConfigRejectsMissingConfig(t *testing.T) {
 // by Netsy seed tests and returns its path.
 func writeMinimalLocalClusterConfig(t *testing.T, dataDir, clusterID string) string {
 	t.Helper()
-	manager := &Local{dataDir: dataDir}
+	manager := newTestLocalManager(dataDir, clusterID)
 	path, err := manager.WriteLocalClusterConfig(clusterID, "https://oidc.localhost:1/oidc", "/tmp/ca.pem", LocalKubernetesAPIHostname(clusterID), 4433, clusterconfig.Seed{Name: seeds.Recommended, Version: testSeedVersion}, nil)
 	if err != nil {
 		t.Fatalf("WriteLocalClusterConfig: %v", err)
 	}
 	return path
+}
+
+func newTestLocalManager(dataDir, clusterID string) *Local {
+	return &Local{
+		dataDir:   dataDir,
+		clusterID: clusterID,
+		vm: qemu.NewQemu(qemu.Options{
+			ClusterID:  clusterID,
+			DataDir:    dataDir,
+			RuntimeDir: dataDir,
+		}),
+	}
 }
 
 // buildSeedSnapshot returns a tiny Podplane seed file containing the
