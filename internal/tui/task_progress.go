@@ -423,7 +423,7 @@ func (m taskProgressModel) View() string {
 	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5f87"))
 	cardStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#5865f2")).Padding(0, 1)
 
-	current, total, _, _, overExpected := m.overallProgress()
+	current, total, _, _, remaining := m.overallProgress()
 	var body strings.Builder
 	if m.doneReceived && m.closed {
 		body.WriteString(m.doneTitle)
@@ -436,11 +436,13 @@ func (m taskProgressModel) View() string {
 			body.WriteString(fmt.Sprintf("• %s", row.item.Name))
 			body.WriteString("\n")
 		}
+		body.WriteString("\n")
+		body.WriteString(fmt.Sprintf("Cluster started in %s\n", formatDuration(m.completedElapsed())))
 	} else {
 		body.WriteString(m.subtitle)
 		body.WriteString("\n\n")
 		if total > 0 {
-			label := m.timeSummary(current, total, overExpected)
+			label := m.timeSummary(remaining)
 			barWidth := 32
 			if m.width > 0 && m.width < 90 {
 				barWidth = 28
@@ -537,17 +539,14 @@ func (m taskProgressModel) cardWidth() int {
 
 // timeSummary renders the elapsed/remaining/overtime summary for the main
 // progress card.
-func (m taskProgressModel) timeSummary(current, total time.Duration, overExpected bool) string {
+func (m taskProgressModel) timeSummary(remaining time.Duration) string {
 	elapsed := m.wallElapsed()
 	if m.allDone() {
 		return fmt.Sprintf("took %s", formatDuration(elapsed))
 	}
-	if overExpected && elapsed > total {
-		return fmt.Sprintf("elapsed %s · +%s", formatDuration(elapsed), formatDuration(elapsed-total))
-	}
-	remaining := total - current
 	if remaining < 0 {
-		remaining = 0
+		overtimeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5f87"))
+		return fmt.Sprintf("elapsed %s · %s", formatDuration(elapsed), overtimeStyle.Render("+"+formatDuration(-remaining)))
 	}
 	return fmt.Sprintf("elapsed %s · about %s left", formatDuration(elapsed), formatDuration(remaining))
 }
@@ -565,6 +564,27 @@ func (m taskProgressModel) wallElapsed() time.Duration {
 		return 0
 	}
 	return time.Since(start)
+}
+
+// completedElapsed returns the frozen elapsed duration for the completed view.
+func (m taskProgressModel) completedElapsed() time.Duration {
+	var start time.Time
+	var end time.Time
+	for _, row := range m.visibleRows() {
+		if !row.startedAt.IsZero() && (start.IsZero() || row.startedAt.Before(start)) {
+			start = row.startedAt
+		}
+		if !row.doneAt.IsZero() && row.doneAt.After(end) {
+			end = row.doneAt
+		}
+	}
+	if start.IsZero() || end.IsZero() {
+		return m.wallElapsed()
+	}
+	if end.Before(start) {
+		return 0
+	}
+	return end.Sub(start)
 }
 
 // allDone reports whether all visible non-ready work items are complete.
@@ -740,40 +760,47 @@ func (m taskProgressModel) visibleRows() []taskProgressRow {
 }
 
 // overallProgress returns the expected-time progress totals, completion counts,
-// and whether the currently running task has exceeded its expected duration.
-func (m taskProgressModel) overallProgress() (time.Duration, time.Duration, int, int, bool) {
-	var current time.Duration
+// and the monotonic displayed remaining time.
+func (m taskProgressModel) overallProgress() (time.Duration, time.Duration, int, int, time.Duration) {
 	var total time.Duration
+	var completeExpected time.Duration
 	var complete int
 	var tracked int
-	var runningOverExpected bool
-	allComplete := true
-	for _, row := range m.visibleRows() {
+	var latestCompletedAt time.Time
+	for _, item := range m.items {
+		row := m.rows[item.Key]
+		if row.omitted {
+			continue
+		}
 		if row.item.Expected <= 0 {
 			continue
 		}
 		tracked++
 		total += row.item.Expected
-		switch row.status {
-		case "done", "skipped":
+		if row.status == "done" || row.status == "skipped" {
 			complete++
-			current += row.item.Expected
-		case "running":
-			allComplete = false
-			elapsed := time.Since(row.startedAt)
-			if elapsed > row.item.Expected {
-				runningOverExpected = true
-				elapsed = row.item.Expected
+			completeExpected += row.item.Expected
+			if !row.doneAt.IsZero() && (latestCompletedAt.IsZero() || row.doneAt.After(latestCompletedAt)) {
+				latestCompletedAt = row.doneAt
 			}
-			current += elapsed
-		default:
-			allComplete = false
 		}
 	}
-	if total > 0 && current >= total && !allComplete {
-		current = total - time.Nanosecond
+	remaining := total - m.wallElapsed()
+	plannedRemaining := total - completeExpected
+	if !latestCompletedAt.IsZero() {
+		plannedRemaining -= time.Since(latestCompletedAt)
 	}
-	return current, total, complete, tracked, runningOverExpected
+	if plannedRemaining < remaining {
+		remaining = plannedRemaining
+	}
+	current := total - remaining
+	if current < 0 {
+		current = 0
+	}
+	if current > total {
+		current = total
+	}
+	return current, total, complete, tracked, remaining
 }
 
 // formatDuration renders short human-readable durations for progress rows.
